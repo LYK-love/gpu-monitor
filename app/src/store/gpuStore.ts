@@ -1,5 +1,15 @@
 import { create } from 'zustand';
-import type { GPUData, HistoryPoint, AppState } from '@/types';
+import type { GPUData, HistoryPoint, AppState, SystemData, ResourceHistoryPoint } from '@/types';
+
+declare global {
+  interface Window {
+    __GPUMON_CONFIG__?: {
+      fontFamily?: string;
+      fontCssUrl?: string;
+      wsUrl?: string;
+    };
+  }
+}
 
 // ── Mock Data Engine ───────────────────────────────────────────
 
@@ -12,18 +22,18 @@ const GPU_NAMES = [
 ];
 
 const PROCESS_NAMES = [
-  'python train_model.py',
-  'python inference.py',
-  'python stable_diffusion.py',
-  'python data_preprocessing.py',
-  'python eval_model.py',
+  'train_model',
+  'inference',
+  'stable_diffusion',
+  'data_preprocessing',
+  'eval_model',
   'torchrun --nproc_per_node=2 train.py',
   'jupyter-lab',
   'nvcc cuda_kernel.cu',
-  'python benchmark.py',
-  'python finetune_lora.py',
-  'python test_model.py',
-  'python export_onnx.py',
+  'benchmark',
+  'finetune_lora',
+  'test_model',
+  'export_onnx',
 ];
 
 const USERS = [
@@ -37,6 +47,14 @@ const USERS = [
 
 let mockPidCounter = 10000;
 // Mock data engine state
+
+function defaultWsUrl(): string {
+  if (window.__GPUMON_CONFIG__?.wsUrl) {
+    return window.__GPUMON_CONFIG__.wsUrl;
+  }
+  const host = window.location.hostname || 'localhost';
+  return `ws://${host}:8765/gpu-stream`;
+}
 
 function createInitialMock(): GPUData[] {
   const count = 2;
@@ -124,13 +142,15 @@ function updateMockData(prev: GPUData[]): GPUData[] {
 
 export const useGPUStore = create<AppState>((set, get) => ({
   gpus: [],
+  system: null,
   history: new Map(),
+  resourceHistory: [],
   isMock: true,
   isConnected: false,
   dataSource: 'mock',
   statusMessage: 'Mock data',
   lastUpdate: Date.now(),
-  wsUrl: 'ws://localhost:8765/gpu-stream',
+  wsUrl: defaultWsUrl(),
   expandedPanels: new Set(['processes']),
   sortBy: 'memory',
   sortDesc: true,
@@ -139,27 +159,58 @@ export const useGPUStore = create<AppState>((set, get) => ({
     const now = Date.now();
     const state = get();
     const newHistory = new Map(state.history);
+    const timeStr = new Date(now).toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
 
     gpus.forEach((gpu) => {
       const existing = newHistory.get(gpu.id) || [];
-      const timeStr = new Date(now).toLocaleTimeString('en-US', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      });
       const newPoint: HistoryPoint = {
         timestamp: now,
         timeStr,
         utilization: gpu.utilization,
         memoryUsed: Math.round((gpu.memoryUsed / gpu.memoryTotal) * 100),
+        powerDraw: gpu.powerDraw,
+        powerPercent: gpu.powerLimit ? Math.round((gpu.powerDraw / gpu.powerLimit) * 100) : 0,
+        temperature: gpu.temperature,
+        fanSpeed: gpu.fanSpeed,
       };
       const updated = [...existing, newPoint].slice(-60);
       newHistory.set(gpu.id, updated);
     });
 
-    set({ gpus, history: newHistory, lastUpdate: now });
+    const gpuAverage = gpus.length > 0
+      ? Math.round(gpus.reduce((sum, gpu) => sum + gpu.utilization, 0) / gpus.length)
+      : 0;
+    const totalGpuMemoryUsed = gpus.reduce((sum, gpu) => sum + gpu.memoryUsed, 0);
+    const totalGpuMemory = gpus.reduce((sum, gpu) => sum + gpu.memoryTotal, 0);
+    const system = state.system;
+    const resourcePoint: ResourceHistoryPoint = {
+      timestamp: now,
+      timeStr,
+      systemCpu: Math.round(system?.cpuUtilization ?? 0),
+      systemMemory: system?.memoryTotal
+        ? Math.round((system.memoryUsed / system.memoryTotal) * 100)
+        : 0,
+      gpuAverage,
+      gpuMemory: totalGpuMemory ? Math.round((totalGpuMemoryUsed / totalGpuMemory) * 100) : 0,
+    };
+    gpus.forEach((gpu) => {
+      resourcePoint[`gpu${gpu.id}`] = gpu.utilization;
+    });
+
+    set({
+      gpus,
+      history: newHistory,
+      resourceHistory: [...state.resourceHistory, resourcePoint].slice(-90),
+      lastUpdate: now,
+    });
   },
+
+  setSystem: (system: SystemData | null) => set({ system }),
 
   updateHistory: (gpuId, point) => {
     const state = get();
@@ -216,6 +267,11 @@ export function startMockEngine() {
   mockInterval = setInterval(() => {
     const state = useGPUStore.getState();
     if (state.isMock) {
+      useGPUStore.getState().setSystem({
+        cpuUtilization: randomWalk(state.system?.cpuUtilization ?? 35, 4, 95, 10),
+        memoryUsed: randomWalk(state.system?.memoryUsed ?? 32000, 16000, 128000, 2800),
+        memoryTotal: state.system?.memoryTotal ?? 128000,
+      });
       const updated = updateMockData(state.gpus);
       useGPUStore.getState().setGPUs(updated);
     }

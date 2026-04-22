@@ -2,27 +2,5 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON_BIN="${GPUMON_PYTHON:-python3}"
-VENV_DIR="${GPUMON_VENV:-"$ROOT/.venv"}"
 
-if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-  echo "[bootstrap] Creating Python virtual environment: $VENV_DIR"
-  "$PYTHON_BIN" -m venv "$VENV_DIR"
-fi
-
-echo "[bootstrap] Installing Python package into project virtual environment"
-"$VENV_DIR/bin/python" -m pip install --upgrade pip
-"$VENV_DIR/bin/python" -m pip install -e "$ROOT"
-
-if command -v npm >/dev/null 2>&1; then
-  if [[ ! -d "$ROOT/app/node_modules" ]]; then
-    echo "[bootstrap] Installing frontend dependencies"
-    (cd "$ROOT/app" && npm ci)
-  else
-    echo "[bootstrap] Frontend dependencies already installed"
-  fi
-else
-  echo "[bootstrap] npm not found; skipping frontend dependency install"
-fi
-
-echo "[bootstrap] Done"
+exec "$ROOT/install.sh"

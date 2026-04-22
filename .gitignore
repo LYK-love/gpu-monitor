@@ -26,3 +26,6 @@ app/node_modules/.tmp/
 # Local runtime output
 logs/
 *.log
+
+# Rust
+target/

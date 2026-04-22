@@ -2,12 +2,12 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-VENV_DIR="${GPUMON_VENV:-"$ROOT/.venv"}"
+BIN="$ROOT/target/release/gpu-monitor"
 
-if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-  echo "[gpumon] Project virtual environment not found."
-  echo "[gpumon] Run: $ROOT/scripts/bootstrap"
+if [[ ! -x "$BIN" ]]; then
+  echo "[gpumon] Rust binary not found."
+  echo "[gpumon] Run: $ROOT/install.sh"
   exit 1
 fi
 
-exec "$VENV_DIR/bin/python" -m gpumon "$@"
+exec "$BIN" "$@"

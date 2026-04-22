@@ -11,13 +11,9 @@ GPU Monitor provides a compact view of NVIDIA GPU health and process usage for l
 - It does not store historical metrics beyond the short browser-side chart window.
 - It does not replace fleet observability systems such as Prometheus and Grafana.
 
-## Core Abstractions
+## Core Pieces
 
-`GPUCollector` is the single source of GPU snapshots. It tries NVML through `nvidia-ml-py` first, then falls back to `nvidia-smi` command output.
-
-`GPUWebSocketServer` periodically calls the collector and broadcasts each snapshot to connected browser clients.
-
-`GPUMonitorTUI` calls the same collector directly and renders a terminal dashboard with GPU cards and a process table.
+The Rust binary reads GPU snapshots from `nvidia-smi`, serves a WebSocket metric stream, can serve the built React dashboard, and includes a compact terminal view.
 
 The React application stores the latest snapshot and short utilization history in Zustand. When the WebSocket stream is unavailable, a mock data engine keeps the interface usable for development and demos.
 
@@ -43,16 +39,17 @@ Each update is a JSON object with a timestamp and a list of GPUs:
         {
           "pid": 4242,
           "type": "C",
-          "name": "python",
+          "name": "train",
           "gpuId": 0,
           "memoryUsage": 2048,
           "user": "alice",
           "uid": "1001",
-          "cmdLine": "python train.py"
+          "cmdLine": "train --model resnet"
         }
       ]
     }
-  ]
+  ],
+  "source": "nvidia-smi"
 }
 ```
 
@@ -61,34 +58,25 @@ Memory values are reported in MiB. Power values are reported in watts.
 ## Control Flow
 
 ```text
-NVML or nvidia-smi
-        |
-        v
-  GPUCollector
-   |        |
-   |        v
-   |   GPUMonitorTUI
-   v
-GPUWebSocketServer
-        |
-        v
+nvidia-smi
+    |
+    v
+Rust binary
+  |      |
+  |      v
+  |   terminal view
+  v
+WebSocket stream
+    |
+    v
 React dashboard
 ```
 
 ## Interfaces
 
-- Python package: `gpumon`
-- CLI: `gpumon tui`, `gpumon server`, `gpumon web`
+- CLI: `./gpu-monitor web`, `./gpu-monitor server`, `./gpu-monitor tui`
 - WebSocket payload: dashboard snapshot JSON
 - Frontend entry point: `app/src/App.tsx`
-
-## Constraints and Tradeoffs
-
-NVML gives direct access to structured metrics, but some machines only expose `nvidia-smi`. The fallback parser keeps the tool useful in constrained environments at the cost of less process detail.
-
-The web dashboard is a static Vite application. This keeps deployment simple, but it means the browser must connect directly to the WebSocket stream.
-
-The terminal UI is optimized for quick local inspection. It does not attempt to provide every dashboard interaction available in the browser.
 
 ## Extension Points
 

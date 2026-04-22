@@ -1,15 +1,18 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Header } from '@/components/Header';
-import { GPUCard } from '@/components/GPUCard';
-import { UtilizationChart } from '@/components/UtilizationChart';
+import { GPUDetail } from '@/components/GPUDetail';
+import { GPUOverview } from '@/components/GPUOverview';
 import { ProcessTable } from '@/components/ProcessTable';
+import { ResourceChart } from '@/components/ResourceChart';
 import { StatusBar } from '@/components/StatusBar';
 import { useGPUStore, startMockEngine, stopMockEngine } from '@/store/gpuStore';
 import type { DashboardData } from '@/types';
 
+type View = 'overview' | 'processes' | 'telemetry';
+
 function WebSocketConnector() {
   const wsRef = useRef<WebSocket | null>(null);
-  const { wsUrl, setConnectionStatus, setDataSource, setGPUs } = useGPUStore();
+  const { wsUrl, setConnectionStatus, setDataSource, setGPUs, setSystem } = useGPUStore();
 
   useEffect(() => {
     function connect() {
@@ -28,6 +31,7 @@ function WebSocketConnector() {
             if (data.gpus && data.gpus.length > 0) {
               stopMockEngine();
               setDataSource('live', `Live GPU data via ${data.source ?? 'backend'}`);
+              setSystem(data.system ?? null);
               setGPUs(data.gpus);
             } else if (data.gpus) {
               setDataSource(
@@ -65,13 +69,15 @@ function WebSocketConnector() {
         wsRef.current.close();
       }
     };
-  }, [setConnectionStatus, setDataSource, setGPUs, wsUrl]);
+  }, [setConnectionStatus, setDataSource, setGPUs, setSystem, wsUrl]);
 
   return null;
 }
 
 function App() {
   const gpus = useGPUStore((s) => s.gpus);
+  const [view, setView] = useState<View>('overview');
+  const [selectedGpuId, setSelectedGpuId] = useState<number | null>(null);
 
   // Start mock engine on mount
   useEffect(() => {
@@ -80,29 +86,47 @@ function App() {
   }, []);
 
   const allProcesses = gpus.flatMap((g) => g.processes);
+  const selectedGpu = useMemo(
+    () => gpus.find((gpu) => gpu.id === selectedGpuId) ?? null,
+    [gpus, selectedGpuId],
+  );
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
+    <div className="min-h-screen flex flex-col app-shell">
       <WebSocketConnector />
       <Header />
 
       <main className="flex-1 p-4 space-y-4 overflow-y-auto">
-        {/* GPU Overview Cards */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {gpus.map((gpu, i) => (
-            <GPUCard key={gpu.id} gpu={gpu} index={i} />
+        <div className="view-switcher" role="tablist" aria-label="Dashboard views">
+          {(['overview', 'processes', 'telemetry'] as const).map((item) => (
+            <button
+              key={item}
+              type="button"
+              className={view === item ? 'active' : ''}
+              onClick={() => {
+                setView(item);
+                setSelectedGpuId(null);
+              }}
+            >
+              {item}
+            </button>
           ))}
         </div>
 
-        {/* Process Table */}
-        <ProcessTable processes={allProcesses} />
-
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          {gpus.map((gpu) => (
-            <UtilizationChart key={gpu.id} gpu={gpu} />
-          ))}
-        </div>
+        {selectedGpu ? (
+          <GPUDetail gpu={selectedGpu} onBack={() => setSelectedGpuId(null)} />
+        ) : (
+          <>
+            {view === 'overview' && (
+              <>
+                <GPUOverview gpus={gpus} onSelectGPU={setSelectedGpuId} />
+                <ResourceChart compact onSelectGPU={setSelectedGpuId} />
+              </>
+            )}
+            {view === 'processes' && <ProcessTable processes={allProcesses} />}
+            {view === 'telemetry' && <ResourceChart onSelectGPU={setSelectedGpuId} />}
+          </>
+        )}
       </main>
 
       <StatusBar />

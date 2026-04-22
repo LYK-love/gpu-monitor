@@ -5,6 +5,8 @@ import {
   ArrowUpDown,
   ChevronDown,
   ChevronRight,
+  Copy,
+  PanelRightOpen,
   Search,
 } from 'lucide-react';
 import { useGPUStore } from '@/store/gpuStore';
@@ -25,6 +27,7 @@ export function ProcessTable({ processes }: Props) {
   const [query, setQuery] = useState('');
   const [gpuFilter, setGpuFilter] = useState('all');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [inspected, setInspected] = useState<GPUProcess | null>(null);
 
   const gpuOptions = useMemo(() => {
     return Array.from(new Set(processes.map((proc) => proc.gpuId))).sort((a, b) => a - b);
@@ -67,23 +70,33 @@ export function ProcessTable({ processes }: Props) {
     });
   };
 
-  const renderSortIcon = (col: SortColumn) => {
-    if (sortBy !== col) return <ArrowUpDown size={13} className="table-sort-muted" />;
-    return sortDesc ? (
-      <ArrowDown size={13} className="table-sort-active" />
-    ) : (
-      <ArrowUp size={13} className="table-sort-active" />
-    );
+  const copyCommand = (command: string) => {
+    void navigator.clipboard?.writeText(command);
   };
 
+  const renderSortIcon = (col: SortColumn) => {
+    if (sortBy !== col) return <ArrowUpDown size={13} className="sort-muted" />;
+    return sortDesc ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
+  };
+
+  const header = (label: string, col: SortColumn, alignRight = false) => (
+    <button
+      type="button"
+      className={`grid-sort ${alignRight ? 'align-right justify-end' : ''}`}
+      onClick={() => setSort(col)}
+    >
+      {label}
+      {renderSortIcon(col)}
+    </button>
+  );
+
   return (
-    <section className="process-panel">
-      <div className="process-panel-header">
+    <section className="surface process-surface">
+      <div className="surface-head process-head">
         <div>
-          <h2>GPU Processes</h2>
-          <p>
-            {visible.length} shown / {processes.length} total / {formatMemory(totalVram)} VRAM
-          </p>
+          <p className="eyebrow">activity</p>
+          <h2>GPU processes</h2>
+          <span>{visible.length} shown / {processes.length} total / sum vram {formatMemory(totalVram)}</span>
         </div>
 
         <div className="process-tools">
@@ -107,93 +120,110 @@ export function ProcessTable({ processes }: Props) {
         </div>
       </div>
 
-      <div className="process-table-wrap">
-        <table className="data-table process-table">
-          <thead>
-            <tr>
-              <th className="w-8" />
-              <th className="sortable" onClick={() => setSort('gpu')}>
-                <span>
-                  GPU {renderSortIcon('gpu')}
-                </span>
-              </th>
-              <th className="sortable" onClick={() => setSort('pid')}>
-                <span>
-                  PID {renderSortIcon('pid')}
-                </span>
-              </th>
-              <th className="sortable" onClick={() => setSort('user')}>
-                <span>
-                  User {renderSortIcon('user')}
-                </span>
-              </th>
-              <th>UID</th>
-              <th>Type</th>
-              <th className="sortable text-right" onClick={() => setSort('memory')}>
-                <span className="justify-end">
-                  VRAM {renderSortIcon('memory')}
-                </span>
-              </th>
-              <th className="sortable" onClick={() => setSort('name')}>
-                <span>
-                  Command {renderSortIcon('name')}
-                </span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {visible.map((proc) => {
-              const rowId = `${proc.gpuId}:${proc.pid}`;
-              const command = proc.cmdLine || proc.name;
-              const isExpanded = expanded.has(rowId);
+      <div className="grid-table process-grid-table">
+        <div className="grid-row grid-head">
+          <div>{header('gpu', 'gpu')}</div>
+          <div>{header('pid', 'pid')}</div>
+          <div>{header('user', 'user')}</div>
+          <div>uid</div>
+          <div>type</div>
+          <div>{header('vram', 'memory', true)}</div>
+          <div>{header('command', 'name')}</div>
+          <div />
+        </div>
 
-              return (
-                <Fragment key={rowId}>
-                  <tr>
-                    <td>
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => toggleExpanded(rowId)}
-                        aria-label={isExpanded ? 'Collapse command' : 'Expand command'}
-                      >
-                        {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
-                      </button>
-                    </td>
-                    <td className="tabular-nums">GPU {proc.gpuId}</td>
-                    <td className="tabular-nums process-pid">{proc.pid}</td>
-                    <td>{proc.user}</td>
-                    <td className="tabular-nums text-muted">{proc.uid}</td>
-                    <td>
-                      <span className="process-type">{proc.type}</span>
-                    </td>
-                    <td className="text-right tabular-nums font-semibold">
-                      {formatMemory(proc.memoryUsage)}
-                    </td>
-                    <td className="process-command-cell" title={command}>
-                      <code>{command}</code>
-                    </td>
-                  </tr>
-                  {isExpanded && (
-                    <tr className="process-expanded-row">
-                      <td />
-                      <td colSpan={7}>
-                        <code>{command}</code>
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+        {visible.map((proc) => {
+          const rowId = `${proc.gpuId}:${proc.pid}`;
+          const command = proc.cmdLine || proc.name;
+          const isExpanded = expanded.has(rowId);
 
-        {visible.length === 0 && (
-          <div className="process-empty">
-            No GPU processes match the current filters.
-          </div>
-        )}
+          return (
+            <Fragment key={rowId}>
+              <div className="grid-row">
+                <div className="mono muted">GPU {proc.gpuId}</div>
+                <div className="mono strong">{proc.pid}</div>
+                <div className="truncate-cell strong" title={proc.user}>{proc.user}</div>
+                <div className="mono muted">{proc.uid}</div>
+                <div><span className="process-type">{proc.type}</span></div>
+                <div className="align-right mono strong">{formatMemory(proc.memoryUsage)}</div>
+                <div className="command-pill" title={command}>
+                  <code>{command}</code>
+                </div>
+                <div className="align-right">
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => setInspected(proc)}
+                    aria-label="Inspect process"
+                  >
+                    <PanelRightOpen size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => toggleExpanded(rowId)}
+                    aria-label={isExpanded ? 'Collapse command' : 'Expand command'}
+                  >
+                    {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                  </button>
+                </div>
+              </div>
+              {isExpanded && (
+                <div className="process-detail">
+                  <div>
+                    <span>command</span>
+                    <code>{command}</code>
+                  </div>
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={() => copyCommand(command)}
+                    aria-label="Copy command"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              )}
+            </Fragment>
+          );
+        })}
+
+        {visible.length === 0 && <div className="empty-state">No GPU processes match the filters.</div>}
       </div>
+
+      {inspected && (
+        <div className="inspector-backdrop" onClick={() => setInspected(null)}>
+          <aside className="inspector-panel" onClick={(event) => event.stopPropagation()}>
+            <div className="inspector-head">
+              <div>
+                <p className="eyebrow">process</p>
+                <h2>{inspected.name}</h2>
+              </div>
+              <button className="icon-button" type="button" onClick={() => setInspected(null)}>
+                <ChevronRight size={16} />
+              </button>
+            </div>
+            <dl className="inspector-facts">
+              <div><dt>GPU</dt><dd>GPU {inspected.gpuId}</dd></div>
+              <div><dt>PID</dt><dd>{inspected.pid}</dd></div>
+              <div><dt>User</dt><dd>{inspected.user}</dd></div>
+              <div><dt>UID</dt><dd>{inspected.uid}</dd></div>
+              <div><dt>Type</dt><dd>{inspected.type}</dd></div>
+              <div><dt>VRAM</dt><dd>{formatMemory(inspected.memoryUsage)}</dd></div>
+            </dl>
+            <div className="inspector-command">
+              <span>command</span>
+              <code>{inspected.cmdLine || inspected.name}</code>
+              <button
+                type="button"
+                onClick={() => copyCommand(inspected.cmdLine || inspected.name)}
+              >
+                copy command
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
     </section>
   );
 }
