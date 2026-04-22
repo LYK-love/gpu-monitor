@@ -2,6 +2,15 @@
 
 GPU Monitor exposes one Python command, `gpumon`, after installation with `python -m pip install -e .`.
 
+On servers where you switch conda environments often, prefer the project launcher:
+
+```bash
+scripts/bootstrap
+scripts/gpumon web --port 8765
+```
+
+`scripts/gpumon` always uses the repository-local `.venv`, so it does not depend on the currently active conda environment.
+
 ## Commands
 
 ```bash

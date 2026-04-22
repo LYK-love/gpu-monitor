@@ -15,6 +15,16 @@ It reads live GPU metrics through NVML when available, falls back to `nvidia-smi
 
 ## Install
 
+Recommended for servers where you often switch conda environments:
+
+```bash
+scripts/bootstrap
+```
+
+This creates a project-local `.venv`, installs the Python package there, and installs frontend dependencies if `npm` is available. You can then run the CLI through `scripts/gpumon` from any conda environment without activating `.venv`.
+
+Manual installation is also supported:
+
 ```bash
 python -m pip install -e .
 cd app
@@ -30,7 +40,7 @@ There are three common ways to run the project. Do not run `gpumon server` and `
 Use this for normal local monitoring:
 
 ```bash
-gpumon web --port 8765
+scripts/gpumon web --port 8765
 ```
 
 This starts the backend WebSocket stream on port `8765`, serves the built frontend over local HTTP on port `8766`, and opens the dashboard in your browser. It opens an `http://127.0.0.1:8766/` URL, not a `file://` URL.
@@ -38,7 +48,7 @@ This starts the backend WebSocket stream on port `8765`, serves the built fronte
 Use `--web-port` if the dashboard HTTP port is already taken:
 
 ```bash
-gpumon web --port 8765 --web-port 8770
+scripts/gpumon web --port 8765 --web-port 8770
 ```
 
 ### Development Mode
@@ -46,7 +56,7 @@ gpumon web --port 8765 --web-port 8770
 Use this when editing the React frontend. Run the backend in one terminal:
 
 ```bash
-gpumon server --host 0.0.0.0 --port 8765 --interval 1
+scripts/gpumon server --host 0.0.0.0 --port 8765 --interval 1
 ```
 
 Then run the frontend dev server in another terminal:
@@ -65,8 +75,10 @@ If the backend is reachable but the machine has no NVIDIA GPU backend available,
 Use this over SSH or when you do not need a browser:
 
 ```bash
-gpumon tui
+scripts/gpumon tui
 ```
+
+If you installed the package manually into your active environment, `gpumon ...` works too. The `scripts/gpumon ...` form is preferred when you do not want conda environment changes to affect the tool.
 
 ## Test
 

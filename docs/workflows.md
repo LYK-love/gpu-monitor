@@ -2,10 +2,16 @@
 
 ## One-Command Local Monitoring
 
-After installing Python and Node dependencies, run:
+For servers where the active conda environment changes often, bootstrap the project-local environment once:
 
 ```bash
-gpumon web --port 8765
+scripts/bootstrap
+```
+
+Then run:
+
+```bash
+scripts/gpumon web --port 8765
 ```
 
 This command starts the backend WebSocket server, serves the built frontend over local HTTP, and opens the dashboard in a browser.
@@ -19,10 +25,10 @@ If the backend is running on a machine without NVML or `nvidia-smi`, the browser
 
 ## Local Development
 
-Install the Python package in editable mode:
+Install the project-local runtime:
 
 ```bash
-python -m pip install -e .
+scripts/bootstrap
 ```
 
 Install frontend dependencies:
@@ -35,7 +41,7 @@ npm ci
 Run the metric stream:
 
 ```bash
-gpumon server --port 8765
+scripts/gpumon server --port 8765
 ```
 
 This is the backend only. In a second terminal, run the frontend:
@@ -52,7 +58,7 @@ Do not also run `gpumon web --port 8765` while this backend is running, because 
 Use the TUI for SSH sessions or machines where a browser is not convenient:
 
 ```bash
-gpumon tui
+scripts/gpumon tui
 ```
 
 ## Static Dashboard Build
@@ -67,7 +73,7 @@ npm run build
 Open it with the helper command:
 
 ```bash
-gpumon web
+scripts/gpumon web
 ```
 
 ## Verification
