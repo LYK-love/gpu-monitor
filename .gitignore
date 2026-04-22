@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+dist/
+build/
+
+# Node / Vite
+app/node_modules/
+app/dist/
+app/.vite/
+app/*.tsbuildinfo
+app/node_modules/.tmp/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Local runtime output
+logs/
+*.log
