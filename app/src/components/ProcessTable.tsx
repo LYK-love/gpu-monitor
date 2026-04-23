@@ -6,7 +6,6 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
-  PanelRightOpen,
   Search,
 } from 'lucide-react';
 import { useGPUStore } from '@/store/gpuStore';
@@ -24,26 +23,34 @@ function formatMemory(mib: number): string {
 
 export function ProcessTable({ processes }: Props) {
   const { sortBy, sortDesc, setSort } = useGPUStore();
+  const processGpuFilter = useGPUStore((s) => s.processGpuFilter);
+  const processUserFilter = useGPUStore((s) => s.processUserFilter);
+  const setProcessGpuFilter = useGPUStore((s) => s.setProcessGpuFilter);
+  const toggleProcessUserFilter = useGPUStore((s) => s.toggleProcessUserFilter);
+
   const [query, setQuery] = useState('');
-  const [gpuFilter, setGpuFilter] = useState('all');
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [inspected, setInspected] = useState<GPUProcess | null>(null);
 
   const gpuOptions = useMemo(() => {
     return Array.from(new Set(processes.map((proc) => proc.gpuId))).sort((a, b) => a - b);
   }, [processes]);
 
+  const userOptions = useMemo(() => {
+    return Array.from(new Set(processes.map((proc) => proc.user))).sort();
+  }, [processes]);
+
   const visible = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     const list = processes.filter((proc) => {
-      const matchesGpu = gpuFilter === 'all' || String(proc.gpuId) === gpuFilter;
+      const matchesGpu = processGpuFilter === 'all' || String(proc.gpuId) === processGpuFilter;
+      const matchesUser = processUserFilter.size === 0 || processUserFilter.has(proc.user);
       const command = proc.cmdLine || proc.name;
       const matchesQuery =
         normalizedQuery.length === 0 ||
         command.toLowerCase().includes(normalizedQuery) ||
         proc.user.toLowerCase().includes(normalizedQuery) ||
         String(proc.pid).includes(normalizedQuery);
-      return matchesGpu && matchesQuery;
+      return matchesGpu && matchesUser && matchesQuery;
     });
 
     list.sort((a, b) => {
@@ -57,7 +64,7 @@ export function ProcessTable({ processes }: Props) {
     });
 
     return list;
-  }, [gpuFilter, processes, query, sortBy, sortDesc]);
+  }, [processGpuFilter, processUserFilter, processes, query, sortBy, sortDesc]);
 
   const totalVram = visible.reduce((sum, proc) => sum + proc.memoryUsage, 0);
 
@@ -75,8 +82,8 @@ export function ProcessTable({ processes }: Props) {
   };
 
   const renderSortIcon = (col: SortColumn) => {
-    if (sortBy !== col) return <ArrowUpDown size={13} className="sort-muted" />;
-    return sortDesc ? <ArrowDown size={13} /> : <ArrowUp size={13} />;
+    if (sortBy !== col) return <ArrowUpDown size={12} className="sort-muted" />;
+    return sortDesc ? <ArrowDown size={12} /> : <ArrowUp size={12} />;
   };
 
   const header = (label: string, col: SortColumn, alignRight = false) => (
@@ -94,29 +101,58 @@ export function ProcessTable({ processes }: Props) {
     <section className="surface process-surface">
       <div className="surface-head process-head">
         <div>
-          <p className="eyebrow">activity</p>
-          <h2>GPU processes</h2>
-          <span>{visible.length} shown / {processes.length} total / sum vram {formatMemory(totalVram)}</span>
+          <div className="eyebrow">activity</div>
+          <h2>Processes</h2>
+          <span className="mono">
+            {visible.length} shown / {processes.length} total / vram {formatMemory(totalVram)}
+          </span>
         </div>
 
         <div className="process-tools">
           <label className="process-search">
-            <Search size={15} />
+            <Search size={14} />
             <input
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="PID, user, command"
+              placeholder="Search PID, user, command"
             />
           </label>
 
-          <select value={gpuFilter} onChange={(event) => setGpuFilter(event.target.value)}>
-            <option value="all">All GPUs</option>
+          <div className="filter-pill-row">
+            <button
+              type="button"
+              className={`filter-pill ${processGpuFilter === 'all' ? 'active' : ''}`}
+              onClick={() => setProcessGpuFilter('all')}
+            >
+              All GPUs
+            </button>
             {gpuOptions.map((gpuId) => (
-              <option key={gpuId} value={gpuId}>
+              <button
+                key={gpuId}
+                type="button"
+                className={`filter-pill ${processGpuFilter === String(gpuId) ? 'active' : ''}`}
+                onClick={() => setProcessGpuFilter(String(gpuId))}
+              >
                 GPU {gpuId}
-              </option>
+              </button>
             ))}
-          </select>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)' }}>
+        <div className="filter-pill-row">
+          <span className="faint" style={{ fontSize: 11, marginRight: 4 }}>Users:</span>
+          {userOptions.map((user) => (
+            <button
+              key={user}
+              type="button"
+              className={`filter-pill ${processUserFilter.has(user) ? 'active' : ''}`}
+              onClick={() => toggleProcessUserFilter(user)}
+            >
+              {user}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -125,8 +161,6 @@ export function ProcessTable({ processes }: Props) {
           <div>{header('gpu', 'gpu')}</div>
           <div>{header('pid', 'pid')}</div>
           <div>{header('user', 'user')}</div>
-          <div>uid</div>
-          <div>type</div>
           <div>{header('vram', 'memory', true)}</div>
           <div>{header('command', 'name')}</div>
           <div />
@@ -140,12 +174,10 @@ export function ProcessTable({ processes }: Props) {
           return (
             <Fragment key={rowId}>
               <div className="grid-row">
-                <div className="mono muted">GPU {proc.gpuId}</div>
-                <div className="mono strong">{proc.pid}</div>
-                <div className="truncate-cell strong" title={proc.user}>{proc.user}</div>
-                <div className="mono muted">{proc.uid}</div>
-                <div><span className="process-type">{proc.type}</span></div>
-                <div className="align-right mono strong">{formatMemory(proc.memoryUsage)}</div>
+                <div className="mono faint">GPU {proc.gpuId}</div>
+                <div className="mono">{proc.pid}</div>
+                <div className="truncate-cell" title={proc.user}>{proc.user}</div>
+                <div className="align-right mono">{formatMemory(proc.memoryUsage)}</div>
                 <div className="command-pill" title={command}>
                   <code>{command}</code>
                 </div>
@@ -153,77 +185,39 @@ export function ProcessTable({ processes }: Props) {
                   <button
                     type="button"
                     className="icon-button"
-                    onClick={() => setInspected(proc)}
-                    aria-label="Inspect process"
+                    onClick={() => copyCommand(command)}
+                    aria-label="Copy command"
                   >
-                    <PanelRightOpen size={14} />
+                    <Copy size={13} />
                   </button>
                   <button
                     type="button"
                     className="icon-button"
                     onClick={() => toggleExpanded(rowId)}
-                    aria-label={isExpanded ? 'Collapse command' : 'Expand command'}
+                    aria-label={isExpanded ? 'Collapse' : 'Expand'}
                   >
-                    {isExpanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+                    {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   </button>
                 </div>
               </div>
               {isExpanded && (
-                <div className="process-detail">
+                <div className="process-detail-inline">
                   <div>
                     <span>command</span>
                     <code>{command}</code>
                   </div>
-                  <button
-                    type="button"
-                    className="icon-button"
-                    onClick={() => copyCommand(command)}
-                    aria-label="Copy command"
-                  >
-                    <Copy size={14} />
-                  </button>
                 </div>
               )}
             </Fragment>
           );
         })}
 
-        {visible.length === 0 && <div className="empty-state">No GPU processes match the filters.</div>}
+        {visible.length === 0 && (
+          <div className="empty-state" style={{ minHeight: 120 }}>
+            No GPU processes match the filters.
+          </div>
+        )}
       </div>
-
-      {inspected && (
-        <div className="inspector-backdrop" onClick={() => setInspected(null)}>
-          <aside className="inspector-panel" onClick={(event) => event.stopPropagation()}>
-            <div className="inspector-head">
-              <div>
-                <p className="eyebrow">process</p>
-                <h2>{inspected.name}</h2>
-              </div>
-              <button className="icon-button" type="button" onClick={() => setInspected(null)}>
-                <ChevronRight size={16} />
-              </button>
-            </div>
-            <dl className="inspector-facts">
-              <div><dt>GPU</dt><dd>GPU {inspected.gpuId}</dd></div>
-              <div><dt>PID</dt><dd>{inspected.pid}</dd></div>
-              <div><dt>User</dt><dd>{inspected.user}</dd></div>
-              <div><dt>UID</dt><dd>{inspected.uid}</dd></div>
-              <div><dt>Type</dt><dd>{inspected.type}</dd></div>
-              <div><dt>VRAM</dt><dd>{formatMemory(inspected.memoryUsage)}</dd></div>
-            </dl>
-            <div className="inspector-command">
-              <span>command</span>
-              <code>{inspected.cmdLine || inspected.name}</code>
-              <button
-                type="button"
-                onClick={() => copyCommand(inspected.cmdLine || inspected.name)}
-              >
-                copy command
-              </button>
-            </div>
-          </aside>
-        </div>
-      )}
     </section>
   );
 }

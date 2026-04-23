@@ -1,6 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/Header';
-import { GPUDetail } from '@/components/GPUDetail';
 import { GPUOverview } from '@/components/GPUOverview';
 import { ProcessTable } from '@/components/ProcessTable';
 import { ResourceChart } from '@/components/ResourceChart';
@@ -74,59 +73,54 @@ function WebSocketConnector() {
   return null;
 }
 
-function App() {
+function ViewContent({ view }: { view: View }) {
   const gpus = useGPUStore((s) => s.gpus);
-  const [view, setView] = useState<View>('overview');
-  const [selectedGpuId, setSelectedGpuId] = useState<number | null>(null);
+  const allProcesses = gpus.flatMap((g) => g.processes);
 
-  // Start mock engine on mount
+  return (
+    <div className="view-content" key={view}>
+      {view === 'overview' && (
+        <div className="space-y-4">
+          <GPUOverview gpus={gpus} />
+          <ResourceChart compact />
+        </div>
+      )}
+      {view === 'processes' && <ProcessTable processes={allProcesses} />}
+      {view === 'telemetry' && <ResourceChart />}
+    </div>
+  );
+}
+
+function App() {
+  const [view, setView] = useState<View>('overview');
+
   useEffect(() => {
     startMockEngine();
     return () => stopMockEngine();
   }, []);
-
-  const allProcesses = gpus.flatMap((g) => g.processes);
-  const selectedGpu = useMemo(
-    () => gpus.find((gpu) => gpu.id === selectedGpuId) ?? null,
-    [gpus, selectedGpuId],
-  );
 
   return (
     <div className="min-h-screen flex flex-col app-shell">
       <WebSocketConnector />
       <Header />
 
-      <main className="flex-1 p-4 space-y-4 overflow-y-auto">
+      <main className="flex-1 overflow-y-auto">
         <div className="view-switcher" role="tablist" aria-label="Dashboard views">
           {(['overview', 'processes', 'telemetry'] as const).map((item) => (
             <button
               key={item}
               type="button"
               className={view === item ? 'active' : ''}
-              onClick={() => {
-                setView(item);
-                setSelectedGpuId(null);
-              }}
+              onClick={() => setView(item)}
             >
               {item}
             </button>
           ))}
         </div>
 
-        {selectedGpu ? (
-          <GPUDetail gpu={selectedGpu} onBack={() => setSelectedGpuId(null)} />
-        ) : (
-          <>
-            {view === 'overview' && (
-              <>
-                <GPUOverview gpus={gpus} onSelectGPU={setSelectedGpuId} />
-                <ResourceChart compact onSelectGPU={setSelectedGpuId} />
-              </>
-            )}
-            {view === 'processes' && <ProcessTable processes={allProcesses} />}
-            {view === 'telemetry' && <ResourceChart onSelectGPU={setSelectedGpuId} />}
-          </>
-        )}
+        <div className="p-4">
+          <ViewContent view={view} />
+        </div>
       </main>
 
       <StatusBar />

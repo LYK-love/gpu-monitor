@@ -1,42 +1,28 @@
-import { Cpu, FlaskConical, Wifi, WifiOff } from 'lucide-react';
 import { useGPUStore } from '@/store/gpuStore';
 
 export function Header() {
   const { dataSource, gpus, isConnected } = useGPUStore();
-  const gpuLabel = dataSource === 'mock'
-    ? `${gpus.length} simulated GPU${gpus.length !== 1 ? 's' : ''}`
-    : `${gpus.length} GPU${gpus.length !== 1 ? 's' : ''} detected`;
+
+  let statusClass = 'offline';
+  let statusLabel = 'offline';
+  if (dataSource === 'live') {
+    statusClass = 'online';
+    statusLabel = 'live';
+  } else if (dataSource === 'mock' && isConnected) {
+    statusClass = 'mock';
+    statusLabel = 'mock';
+  }
 
   return (
     <header className="app-header">
-      <div>
-        <p className="eyebrow">live console</p>
-        <h1>GPU Monitor</h1>
-      </div>
-
+      <h1>GPU Monitor</h1>
       <div className="header-meta">
-        <div>
-          <Cpu size={14} />
-          <span>{gpuLabel}</span>
+        <div className="header-meta-item">
+          <span className={`status-dot ${statusClass}`} />
+          <span>{statusLabel}</span>
         </div>
-
-        <div>
-          {dataSource === 'live' ? (
-            <>
-              <Wifi size={14} />
-              <span>live</span>
-            </>
-          ) : dataSource === 'mock' && isConnected ? (
-            <>
-              <FlaskConical size={14} />
-              <span>mock</span>
-            </>
-          ) : (
-            <>
-              <WifiOff size={14} />
-              <span>offline</span>
-            </>
-          )}
+        <div className="header-meta-item mono">
+          {gpus.length} GPU{gpus.length !== 1 ? 's' : ''}
         </div>
       </div>
     </header>

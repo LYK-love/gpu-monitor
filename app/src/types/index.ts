@@ -46,7 +46,11 @@ export interface ResourceHistoryPoint {
   systemMemory: number;
   gpuAverage: number;
   gpuMemory: number;
-  [key: `gpu${number}`]: number;
+  [key: `gpu${number}_util`]: number;
+  [key: `gpu${number}_mem`]: number;
+  [key: `gpu${number}_pwr`]: number;
+  [key: `gpu${number}_temp`]: number;
+  [key: `gpu${number}_fan`]: number;
 }
 
 export interface DashboardData {
@@ -75,6 +79,14 @@ export interface AppState {
   sortBy: 'memory' | 'pid' | 'name' | 'gpu' | 'user';
   sortDesc: boolean;
 
+  // Telemetry filters
+  telemetryDevices: Set<string>;
+  telemetryMetric: string;
+
+  // Process filters
+  processGpuFilter: string;
+  processUserFilter: Set<string>;
+
   // Actions
   setGPUs: (gpus: GPUData[]) => void;
   setSystem: (system: SystemData | null) => void;
@@ -83,4 +95,8 @@ export interface AppState {
   setDataSource: (source: 'live' | 'mock' | 'offline', message: string) => void;
   togglePanel: (id: string) => void;
   setSort: (by: 'memory' | 'pid' | 'name' | 'gpu' | 'user') => void;
+  toggleTelemetryDevice: (device: string) => void;
+  setTelemetryMetric: (metric: string) => void;
+  setProcessGpuFilter: (filter: string) => void;
+  toggleProcessUserFilter: (user: string) => void;
 }

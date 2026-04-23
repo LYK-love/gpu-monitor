@@ -1,202 +1,286 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
-  Area,
-  AreaChart,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
   YAxis,
 } from 'recharts';
 import { useGPUStore } from '@/store/gpuStore';
 import type { ResourceHistoryPoint } from '@/types';
 
-const GPU_COLORS = ['#7dd3fc', '#86efac', '#fcd34d', '#f0abfc', '#c4b5fd', '#67e8f9'];
+const DEVICE_COLORS = ['#f4f4f5', '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a'];
 
-type Metric = {
-  id: string;
-  label: string;
-  metricLabel: string;
-  description: string;
-  value: number;
-  color: string;
-  dataKey: keyof ResourceHistoryPoint | `gpu${number}`;
-  group: 'system' | 'gpu';
-  focusGpuId?: number;
-};
+const METRICS = [
+  { id: 'utilization', label: 'Utilization', unit: '%', max: 100 },
+  { id: 'memory', label: 'VRAM / RAM', unit: '%', max: 100 },
+  { id: 'power', label: 'Power', unit: '%', max: 100 },
+  { id: 'temperature', label: 'Temperature', unit: '°C', max: 100 },
+  { id: 'fan', label: 'Fan', unit: '%', max: 100 },
+];
 
 interface Props {
   compact?: boolean;
-  onSelectGPU?: (gpuId: number) => void;
 }
 
-export function ResourceChart({ compact = false, onSelectGPU }: Props) {
+export function ResourceChart({ compact = false }: Props) {
   const history = useGPUStore((s) => s.resourceHistory);
   const gpus = useGPUStore((s) => s.gpus);
   const system = useGPUStore((s) => s.system);
-  const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const telemetryDevices = useGPUStore((s) => s.telemetryDevices);
+  const telemetryMetric = useGPUStore((s) => s.telemetryMetric);
+  const toggleTelemetryDevice = useGPUStore((s) => s.toggleTelemetryDevice);
+  const setTelemetryMetric = useGPUStore((s) => s.setTelemetryMetric);
 
-  const metrics: Metric[] = useMemo(() => {
-    const systemMetrics: Metric[] = [
-      {
-        id: 'cpu',
-        label: 'CPU',
-        metricLabel: 'host utilization',
-        description: 'Host CPU utilization',
-        value: Math.round(system?.cpuUtilization ?? 0),
-        color: '#e5e7eb',
-        dataKey: 'systemCpu',
-        group: 'system',
-      },
-      {
-        id: 'memory',
-        label: 'Memory',
-        metricLabel: 'host memory used',
-        description: 'Host memory used',
-        value: system?.memoryTotal ? Math.round((system.memoryUsed / system.memoryTotal) * 100) : 0,
-        color: '#94a3b8',
-        dataKey: 'systemMemory',
-        group: 'system',
-      },
-    ];
+  const metricDef = METRICS.find((m) => m.id === telemetryMetric) ?? METRICS[0];
 
-    const gpuMetrics = gpus.map((gpu, index): Metric => ({
-      id: `gpu-${gpu.id}`,
-      label: `GPU ${gpu.id}`,
-      metricLabel: 'utilization',
-      description: `GPU ${gpu.id} utilization`,
-      value: gpu.utilization,
-      color: GPU_COLORS[index % GPU_COLORS.length],
-      dataKey: `gpu${gpu.id}`,
-      group: 'gpu',
-      focusGpuId: gpu.id,
-    }));
+  const devices = useMemo(() => {
+    const list: { id: string; label: string; color: string; dataKey: keyof ResourceHistoryPoint }[] = [];
+    let colorIndex = 0;
 
-    return [...systemMetrics, ...gpuMetrics];
+    const hasGpuSelected = gpus.some((gpu) => telemetryDevices.has(`gpu${gpu.id}`));
+    const showAllGpus = !hasGpuSelected;
+
+    if (telemetryDevices.has('cpu')) {
+      const key =
+        telemetryMetric === 'utilization'
+          ? 'systemCpu'
+          : telemetryMetric === 'memory'
+            ? 'systemMemory'
+            : null;
+      if (key) {
+        list.push({ id: 'cpu', label: 'CPU', color: DEVICE_COLORS[colorIndex++], dataKey: key });
+      }
+    }
+
+    gpus.forEach((gpu) => {
+      if (!showAllGpus && !telemetryDevices.has(`gpu${gpu.id}`)) return;
+      const suffix = telemetryMetric;
+      const key = `gpu${gpu.id}_${suffix}` as keyof ResourceHistoryPoint;
+      if (suffix === 'power' || suffix === 'temperature' || suffix === 'fan' || suffix === 'utilization' || suffix === 'memory') {
+        list.push({
+          id: `gpu-${gpu.id}`,
+          label: `GPU ${gpu.id}`,
+          color: DEVICE_COLORS[Math.min(colorIndex++, DEVICE_COLORS.length - 1)],
+          dataKey: key,
+        });
+      }
+    });
+
+    return list;
+  }, [gpus, telemetryDevices, telemetryMetric]);
+
+  const compactMetrics = useMemo(() => {
+    const list: {
+      id: string;
+      label: string;
+      sublabel: string;
+      value: number;
+      color: string;
+      dataKey: keyof ResourceHistoryPoint;
+      focusGpuId?: number;
+    }[] = [];
+
+    list.push({
+      id: 'cpu',
+      label: 'CPU',
+      sublabel: 'utilization',
+      value: Math.round(system?.cpuUtilization ?? 0),
+      color: '#f4f4f5',
+      dataKey: 'systemCpu',
+    });
+
+    list.push({
+      id: 'memory',
+      label: 'Memory',
+      sublabel: 'host used',
+      value: system?.memoryTotal ? Math.round((system.memoryUsed / system.memoryTotal) * 100) : 0,
+      color: '#a1a1aa',
+      dataKey: 'systemMemory',
+    });
+
+    gpus.forEach((gpu, index) => {
+      list.push({
+        id: `gpu-${gpu.id}-util`,
+        label: `GPU ${gpu.id}`,
+        sublabel: 'utilization',
+        value: gpu.utilization,
+        color: DEVICE_COLORS[Math.min(index + 2, DEVICE_COLORS.length - 1)],
+        dataKey: `gpu${gpu.id}_util` as keyof ResourceHistoryPoint,
+        focusGpuId: gpu.id,
+      });
+    });
+
+    return list.slice(0, 5);
   }, [gpus, system]);
 
-  const shownMetrics = metrics.filter((metric) => !hidden.has(metric.id));
-  const renderedMetrics = compact ? shownMetrics.slice(0, 4) : shownMetrics;
-
-  const toggle = (id: string) => {
-    setHidden((current) => {
-      const next = new Set(current);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
-  const toggleGroup = (group: Metric['group']) => {
-    setHidden((current) => {
-      const next = new Set(current);
-      const ids = metrics.filter((metric) => metric.group === group).map((metric) => metric.id);
-      const allVisible = ids.every((id) => !next.has(id));
-      ids.forEach((id) => {
-        if (allVisible) next.add(id);
-        else next.delete(id);
-      });
-      return next;
-    });
-  };
-
-  const groupVisible = (group: Metric['group']) => (
-    metrics.some((metric) => metric.group === group) &&
-    metrics.filter((metric) => metric.group === group).every((metric) => !hidden.has(metric.id))
-  );
+  if (compact) {
+    return (
+      <section className="resource-section">
+        <div className="resource-topline">
+          <h2>Telemetry</h2>
+        </div>
+        <div className="resource-tile-grid">
+          {compactMetrics.map((metric) => (
+            <article className="resource-tile" key={metric.id}>
+              <div className="resource-tile-head">
+                <div>
+                  <span>{metric.label}</span>
+                  <em>{metric.sublabel}</em>
+                </div>
+                <strong style={{ color: metric.color }}>{metric.value}%</strong>
+              </div>
+              <div className="tile-chart">
+                {history.length < 2 ? (
+                  <div className="empty-state">collecting</div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={history} margin={{ top: 6, right: 0, left: 0, bottom: 0 }}>
+                      <YAxis domain={[0, 100]} hide />
+                      <Tooltip
+                        contentStyle={{
+                          backgroundColor: '#111113',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          borderRadius: '4px',
+                          color: '#f4f4f5',
+                          fontFamily: 'var(--mono-font)',
+                          fontSize: '11px',
+                        }}
+                        labelStyle={{ color: '#71717a' }}
+                        formatter={(value: number) => [`${value}%`, metric.sublabel]}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey={metric.dataKey}
+                        stroke={metric.color}
+                        strokeWidth={1.5}
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    );
+  }
 
   return (
-    <section className="resource-section">
-      <div className="resource-topline">
+    <section className="telemetry-panel">
+      <div className="telemetry-head">
         <div>
-          <p className="eyebrow">telemetry</p>
-          <h2>Resource tiles</h2>
+          <div className="eyebrow">metrics</div>
+          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>Telemetry</h2>
         </div>
-        <div className="metric-filter">
-          <button
-            type="button"
-            className={groupVisible('system') ? 'active' : ''}
-            onClick={() => toggleGroup('system')}
-          >
-            system
-          </button>
-          <button
-            type="button"
-            className={groupVisible('gpu') ? 'active' : ''}
-            onClick={() => toggleGroup('gpu')}
-          >
-            all gpu
-          </button>
-          {metrics.map((metric) => (
+        <div className="filter-pill-row">
+          {METRICS.map((m) => (
             <button
+              key={m.id}
               type="button"
-              key={metric.id}
-              className={!hidden.has(metric.id) ? 'active' : ''}
-              onClick={() => toggle(metric.id)}
+              className={`filter-pill ${telemetryMetric === m.id ? 'active' : ''}`}
+              onClick={() => setTelemetryMetric(m.id)}
             >
-              {metric.label.toLowerCase()}
+              {m.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="resource-tile-grid">
-        {renderedMetrics.map((metric) => (
-          <article className="resource-tile" key={metric.id}>
-            <div className="resource-tile-head">
-              <div>
-                <span>{metric.label}</span>
-                <em>{metric.metricLabel}</em>
-              </div>
-              <strong style={{ color: metric.color }}>{metric.value}%</strong>
-            </div>
-            {metric.focusGpuId !== undefined && (
-              <button
-                type="button"
-                className="tile-drilldown"
-                onClick={() => onSelectGPU?.(metric.focusGpuId!)}
-              >
-                open GPU telemetry
-              </button>
-            )}
-            <div className="tile-chart">
-              {history.length < 2 ? (
-                <div className="empty-state">collecting</div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={history} margin={{ top: 6, right: 0, left: 0, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id={`grad-${metric.id}`} x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={metric.color} stopOpacity={0.32} />
-                        <stop offset="100%" stopColor={metric.color} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <YAxis domain={[0, 100]} hide />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: '#111827',
-                        border: '1px solid rgba(148,163,184,0.18)',
-                        borderRadius: '8px',
-                        color: '#e5e7eb',
-                        fontFamily: 'var(--mono-font)',
-                        fontSize: '12px',
-                      }}
-                      labelStyle={{ color: '#94a3b8' }}
-                      formatter={(value) => [`${value}%`, metric.description]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey={metric.dataKey}
-                      stroke={metric.color}
-                      strokeWidth={2}
-                      fill={`url(#grad-${metric.id})`}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </article>
-        ))}
+      <div style={{ padding: '12px 20px 0', borderBottom: '1px solid var(--border)' }}>
+        <div className="filter-pill-row" style={{ marginBottom: 12 }}>
+          <button
+            type="button"
+            className={`filter-pill ${telemetryDevices.has('cpu') ? 'active' : ''}`}
+            onClick={() => toggleTelemetryDevice('cpu')}
+          >
+            CPU
+          </button>
+          {gpus.map((gpu) => (
+            <button
+              key={gpu.id}
+              type="button"
+              className={`filter-pill ${telemetryDevices.has(`gpu${gpu.id}`) ? 'active' : ''}`}
+              onClick={() => toggleTelemetryDevice(`gpu${gpu.id}`)}
+            >
+              GPU {gpu.id}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="telemetry-layout">
+        <div className="telemetry-chart-box">
+          {history.length < 2 ? (
+            <div className="empty-state">collecting data</div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={history} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <XAxis
+                  dataKey="timeStr"
+                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tickLine={false}
+                  axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                  minTickGap={30}
+                />
+                <YAxis
+                  domain={[0, metricDef.max]}
+                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={36}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#111113',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '4px',
+                    color: '#f4f4f5',
+                    fontFamily: 'var(--mono-font)',
+                    fontSize: '11px',
+                  }}
+                  labelStyle={{ color: '#71717a' }}
+                  formatter={(value: number, name: string) => {
+                    return [`${value}${metricDef.unit}`, name];
+                  }}
+                />
+                {devices.map((device) => (
+                  <Line
+                    key={device.id}
+                    type="monotone"
+                    dataKey={device.dataKey}
+                    name={device.label}
+                    stroke={device.color}
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+        </div>
+
+        <div className="telemetry-facts">
+          {devices.map((device) => {
+            const last = history[history.length - 1];
+            const val = last ? (last[device.dataKey] as number) : 0;
+            return (
+              <article key={device.id}>
+                <span>{device.label}</span>
+                <strong style={{ color: device.color }}>
+                  {val}{metricDef.unit}
+                </strong>
+              </article>
+            );
+          })}
+          {devices.length === 0 && (
+            <div className="empty-state" style={{ minHeight: 80 }}>Select a device</div>
+          )}
+        </div>
       </div>
     </section>
   );

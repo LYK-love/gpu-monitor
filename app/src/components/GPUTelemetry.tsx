@@ -1,10 +1,10 @@
 import { useMemo, useState } from 'react';
 import {
-  Area,
-  AreaChart,
   Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
+  XAxis,
   YAxis,
 } from 'recharts';
 import { useGPUStore } from '@/store/gpuStore';
@@ -21,13 +21,12 @@ const METRICS: Array<{
   label: string;
   unit: string;
   color: string;
-  importance: 'primary' | 'secondary';
 }> = [
-  { key: 'utilization', label: 'utilization', unit: '%', color: '#7dd3fc', importance: 'primary' },
-  { key: 'memoryUsed', label: 'vram used', unit: '%', color: '#86efac', importance: 'primary' },
-  { key: 'powerPercent', label: 'power limit', unit: '%', color: '#fcd34d', importance: 'secondary' },
-  { key: 'temperature', label: 'temperature', unit: 'C', color: '#fb7185', importance: 'secondary' },
-  { key: 'fanSpeed', label: 'fan speed', unit: '%', color: '#c4b5fd', importance: 'secondary' },
+  { key: 'utilization', label: 'utilization', unit: '%', color: '#f4f4f5' },
+  { key: 'memoryUsed', label: 'vram', unit: '%', color: '#a1a1aa' },
+  { key: 'powerPercent', label: 'power', unit: '%', color: '#71717a' },
+  { key: 'temperature', label: 'temp', unit: '°C', color: '#52525b' },
+  { key: 'fanSpeed', label: 'fan', unit: '%', color: '#3f3f46' },
 ];
 
 export function GPUTelemetry({ gpu }: Props) {
@@ -47,19 +46,18 @@ export function GPUTelemetry({ gpu }: Props) {
   };
 
   return (
-    <section className="gpu-telemetry-panel">
-      <div className="surface-head telemetry-head">
+    <section className="telemetry-panel">
+      <div className="telemetry-head">
         <div>
-          <p className="eyebrow">gpu telemetry</p>
-          <h2>GPU {gpu.id} multi-metric history</h2>
-          <span>utilization and VRAM are primary; power, temperature, and fan are optional overlays</span>
+          <div className="eyebrow">gpu telemetry</div>
+          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>GPU {gpu.id} history</h2>
         </div>
-        <div className="metric-filter">
+        <div className="filter-pill-row">
           {METRICS.map((metric) => (
             <button
               key={metric.key}
               type="button"
-              className={visible.has(metric.key) ? 'active' : ''}
+              className={`filter-pill ${visible.has(metric.key) ? 'active' : ''}`}
               onClick={() => toggle(metric.key)}
             >
               {metric.label}
@@ -68,24 +66,37 @@ export function GPUTelemetry({ gpu }: Props) {
         </div>
       </div>
 
-      <div className="gpu-telemetry-layout">
-        <div className="gpu-telemetry-chart">
+      <div className="telemetry-layout">
+        <div className="telemetry-chart-box">
           {data.length < 2 ? (
             <div className="empty-state">Collecting GPU telemetry...</div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={data} margin={{ top: 12, right: 16, left: -18, bottom: 8 }}>
-                <YAxis domain={[0, 100]} hide />
+              <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                <XAxis
+                  dataKey="timeStr"
+                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tickLine={false}
+                  axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
+                  minTickGap={30}
+                />
+                <YAxis
+                  domain={[0, 100]}
+                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={36}
+                />
                 <Tooltip
                   contentStyle={{
-                    backgroundColor: '#111827',
-                    border: '1px solid rgba(148,163,184,0.18)',
-                    borderRadius: '8px',
-                    color: '#e5e7eb',
+                    backgroundColor: '#111113',
+                    border: '1px solid rgba(255,255,255,0.08)',
+                    borderRadius: '4px',
+                    color: '#f4f4f5',
                     fontFamily: 'var(--mono-font)',
-                    fontSize: '12px',
+                    fontSize: '11px',
                   }}
-                  formatter={(value, name) => {
+                  formatter={(value: number, name: string) => {
                     const metric = METRICS.find((item) => item.key === name);
                     return [`${value}${metric?.unit ?? ''}`, metric?.label ?? name];
                   }}
@@ -95,36 +106,23 @@ export function GPUTelemetry({ gpu }: Props) {
                   }}
                 />
                 {METRICS.filter((metric) => visible.has(metric.key)).map((metric) => (
-                  metric.importance === 'primary' ? (
-                    <Area
-                      key={metric.key}
-                      type="monotone"
-                      dataKey={metric.key}
-                      stroke={metric.color}
-                      strokeWidth={2}
-                      fill={metric.color}
-                      fillOpacity={0.12}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  ) : (
-                    <Line
-                      key={metric.key}
-                      type="monotone"
-                      dataKey={metric.key}
-                      stroke={metric.color}
-                      strokeWidth={1.7}
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  )
+                  <Line
+                    key={metric.key}
+                    type="monotone"
+                    dataKey={metric.key}
+                    name={metric.key}
+                    stroke={metric.color}
+                    strokeWidth={1.5}
+                    dot={false}
+                    isAnimationActive={false}
+                  />
                 ))}
-              </AreaChart>
+              </LineChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        <div className="gpu-telemetry-facts">
+        <div className="telemetry-facts">
           {METRICS.map((metric) => (
             <article key={metric.key}>
               <span>{metric.label}</span>

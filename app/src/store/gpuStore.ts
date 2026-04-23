@@ -46,7 +46,6 @@ const USERS = [
 ];
 
 let mockPidCounter = 10000;
-// Mock data engine state
 
 function defaultWsUrl(): string {
   if (window.__GPUMON_CONFIG__?.wsUrl) {
@@ -95,7 +94,6 @@ function updateMockData(prev: GPUData[]): GPUData[] {
 
     let processes = [...gpu.processes];
 
-    // Randomly add process
     if (Math.random() < 0.08 && processes.length < 8) {
       mockPidCounter++;
       const user = USERS[Math.floor(Math.random() * USERS.length)];
@@ -112,13 +110,11 @@ function updateMockData(prev: GPUData[]): GPUData[] {
       });
     }
 
-    // Randomly remove process
     if (Math.random() < 0.04 && processes.length > 0) {
       const idx = Math.floor(Math.random() * processes.length);
       processes.splice(idx, 1);
     }
 
-    // Update process memory
     processes = processes.map((p) => ({
       ...p,
       memoryUsage: Math.max(50, p.memoryUsage + Math.floor((Math.random() - 0.5) * 50)),
@@ -154,6 +150,30 @@ export const useGPUStore = create<AppState>((set, get) => ({
   expandedPanels: new Set(['processes']),
   sortBy: 'memory',
   sortDesc: true,
+
+  // Telemetry filters
+  telemetryDevices: new Set<string>(['cpu']),
+  telemetryMetric: 'utilization',
+  toggleTelemetryDevice: (device: string) =>
+    set((state) => {
+      const next = new Set(state.telemetryDevices);
+      if (next.has(device)) next.delete(device);
+      else next.add(device);
+      return { telemetryDevices: next };
+    }),
+  setTelemetryMetric: (metric: string) => set({ telemetryMetric: metric }),
+
+  // Process filters
+  processGpuFilter: 'all',
+  processUserFilter: new Set<string>(),
+  setProcessGpuFilter: (filter: string) => set({ processGpuFilter: filter }),
+  toggleProcessUserFilter: (user: string) =>
+    set((state) => {
+      const next = new Set(state.processUserFilter);
+      if (next.has(user)) next.delete(user);
+      else next.add(user);
+      return { processUserFilter: next };
+    }),
 
   setGPUs: (gpus) => {
     const now = Date.now();
@@ -199,7 +219,15 @@ export const useGPUStore = create<AppState>((set, get) => ({
       gpuMemory: totalGpuMemory ? Math.round((totalGpuMemoryUsed / totalGpuMemory) * 100) : 0,
     };
     gpus.forEach((gpu) => {
-      resourcePoint[`gpu${gpu.id}`] = gpu.utilization;
+      resourcePoint[`gpu${gpu.id}_util`] = gpu.utilization;
+      resourcePoint[`gpu${gpu.id}_mem`] = gpu.memoryTotal
+        ? Math.round((gpu.memoryUsed / gpu.memoryTotal) * 100)
+        : 0;
+      resourcePoint[`gpu${gpu.id}_pwr`] = gpu.powerLimit
+        ? Math.round((gpu.powerDraw / gpu.powerLimit) * 100)
+        : 0;
+      resourcePoint[`gpu${gpu.id}_temp`] = gpu.temperature;
+      resourcePoint[`gpu${gpu.id}_fan`] = gpu.fanSpeed;
     });
 
     set({

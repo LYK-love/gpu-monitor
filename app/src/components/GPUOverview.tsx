@@ -1,8 +1,16 @@
+import { useMemo, useState } from 'react';
+import {
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  YAxis,
+} from 'recharts';
+import { useGPUStore } from '@/store/gpuStore';
 import type { GPUData } from '@/types';
 
 interface Props {
   gpus: GPUData[];
-  onSelectGPU?: (gpuId: number) => void;
 }
 
 function formatMemory(mib: number): string {
@@ -15,47 +23,178 @@ function usageClass(value: number): string {
   return 'usage-calm';
 }
 
-export function GPUOverview({ gpus, onSelectGPU }: Props) {
+function ExpandedPanel({ gpu }: { gpu: GPUData }) {
+  const history = useGPUStore((s) => s.history);
+  const data = useMemo(() => history.get(gpu.id) || [], [gpu.id, history]);
+  const memoryPercent = gpu.memoryTotal
+    ? Math.round((gpu.memoryUsed / gpu.memoryTotal) * 100)
+    : 0;
+  const powerPercent = gpu.powerLimit
+    ? Math.round((gpu.powerDraw / gpu.powerLimit) * 100)
+    : 0;
+
+  return (
+    <div className="gpu-card-expanded">
+      <div className="metric-card-grid">
+        <article className="metric-card">
+          <span>Utilization</span>
+          <strong className={usageClass(gpu.utilization)}>{gpu.utilization}%</strong>
+          <div className="meter"><i style={{ width: `${gpu.utilization}%` }} /></div>
+        </article>
+        <article className="metric-card">
+          <span>VRAM</span>
+          <strong>{formatMemory(gpu.memoryUsed)}</strong>
+          <p>{formatMemory(gpu.memoryTotal)} total</p>
+          <div className="meter"><i style={{ width: `${memoryPercent}%` }} /></div>
+        </article>
+        <article className="metric-card">
+          <span>Temperature</span>
+          <strong className={gpu.temperature >= 80 ? 'usage-hot' : ''}>
+            {gpu.temperature}°C
+          </strong>
+        </article>
+        <article className="metric-card">
+          <span>Power</span>
+          <strong>{gpu.powerDraw}W</strong>
+          <p>{gpu.powerLimit}W limit</p>
+          <div className="meter"><i style={{ width: `${powerPercent}%` }} /></div>
+        </article>
+        <article className="metric-card">
+          <span>Fan</span>
+          <strong>{gpu.fanSpeed}%</strong>
+        </article>
+      </div>
+
+      <div className="expanded-chart-box">
+        {data.length < 2 ? (
+          <div className="empty-state">collecting data</div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={data} margin={{ top: 6, right: 6, left: 0, bottom: 0 }}>
+              <YAxis domain={[0, 100]} hide />
+              <Tooltip
+                contentStyle={{
+                  backgroundColor: '#111113',
+                  border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '4px',
+                  color: '#f4f4f5',
+                  fontFamily: 'var(--mono-font)',
+                  fontSize: '11px',
+                }}
+                labelStyle={{ color: '#71717a' }}
+                formatter={(value: number, name: string) => {
+                  const label = name === 'utilization' ? 'util' : name === 'memoryUsed' ? 'vram' : name;
+                  return [`${value}%`, label];
+                }}
+              />
+              <Line
+                type="monotone"
+                dataKey="utilization"
+                stroke="#f4f4f5"
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+              <Line
+                type="monotone"
+                dataKey="memoryUsed"
+                stroke="#71717a"
+                strokeWidth={1.5}
+                dot={false}
+                isAnimationActive={false}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+
+      {gpu.processes.length > 0 && (
+        <div className="expanded-processes">
+          <div className="eyebrow" style={{ marginBottom: 10 }}>
+            {gpu.processes.length} process{gpu.processes.length !== 1 ? 'es' : ''}
+          </div>
+          <div className="expanded-process-list">
+            {gpu.processes.map((proc) => (
+              <div className="expanded-process-item" key={`${proc.gpuId}:${proc.pid}`}>
+                <div>
+                  <strong>{proc.user}</strong>
+                  <span className="faint">PID {proc.pid}</span>
+                </div>
+                <div className="mono">{formatMemory(proc.memoryUsage)}</div>
+                <code>{proc.cmdLine || proc.name}</code>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function GPUOverview({ gpus }: Props) {
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+
   return (
     <section className="surface">
       <div className="surface-head">
-        <div>
-          <p className="eyebrow">devices</p>
-          <h2>GPU overview</h2>
-        </div>
-        <span>{gpus.length} detected</span>
+        <h2>Devices</h2>
+        <span className="mono">{gpus.length} detected</span>
       </div>
 
-      <div className="grid-table gpu-grid-table">
-        <div className="grid-row grid-head">
-          <div>gpu</div>
-          <div>name</div>
-          <div className="align-right">util</div>
-          <div className="align-right">vram</div>
-          <div className="align-right">temp</div>
-          <div className="align-right">power</div>
-          <div className="align-right">processes</div>
-        </div>
+      <div className="gpu-card-list">
+        {gpus.map((gpu) => {
+          const isExpanded = expandedId === gpu.id;
+          return (
+            <div key={gpu.id}>
+              <button
+                type="button"
+                className={`gpu-card ${isExpanded ? 'active' : ''}`}
+                onClick={() => setExpandedId(isExpanded ? null : gpu.id)}
+              >
+                <div className="gpu-card-name">
+                  <div className="eyebrow">GPU {gpu.id}</div>
+                  <div className="truncate-cell" title={gpu.name}>
+                    {gpu.name}
+                  </div>
+                </div>
+                <div>
+                  <div className="gpu-card-label">util</div>
+                  <div className={`gpu-card-value ${usageClass(gpu.utilization)}`}>
+                    {gpu.utilization}%
+                  </div>
+                </div>
+                <div>
+                  <div className="gpu-card-label">vram</div>
+                  <div className="gpu-card-value">
+                    {formatMemory(gpu.memoryUsed)}{' '}
+                    <span className="faint">/ {formatMemory(gpu.memoryTotal)}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="gpu-card-label">temp</div>
+                  <div
+                    className={`gpu-card-value ${
+                      gpu.temperature >= 80 ? 'usage-hot' : ''
+                    }`}
+                  >
+                    {gpu.temperature}°
+                  </div>
+                </div>
+                <div>
+                  <div className="gpu-card-label">procs</div>
+                  <div className="gpu-card-value faint">{gpu.processes.length}</div>
+                </div>
+              </button>
+              {isExpanded && <ExpandedPanel gpu={gpu} />}
+            </div>
+          );
+        })}
 
-        {gpus.map((gpu) => (
-          <button className="grid-row row-button" key={gpu.id} onClick={() => onSelectGPU?.(gpu.id)} type="button">
-            <div className="mono muted">GPU {gpu.id}</div>
-            <div className="truncate-cell" title={gpu.name}>{gpu.name}</div>
-            <div className={`align-right mono ${usageClass(gpu.utilization)}`}>{gpu.utilization}%</div>
-            <div className="align-right mono">
-              {formatMemory(gpu.memoryUsed)} <span className="muted">/ {formatMemory(gpu.memoryTotal)}</span>
-            </div>
-            <div className={`align-right mono ${gpu.temperature >= 80 ? 'usage-hot' : ''}`}>
-              {gpu.temperature}C
-            </div>
-            <div className="align-right mono">
-              {gpu.powerDraw}W <span className="muted">/ {gpu.powerLimit}W</span>
-            </div>
-            <div className="align-right mono">{gpu.processes.length}</div>
-          </button>
-        ))}
-
-        {gpus.length === 0 && <div className="empty-state">No GPU data.</div>}
+        {gpus.length === 0 && (
+          <div className="empty-state" style={{ minHeight: 120 }}>
+            No GPU data.
+          </div>
+        )}
       </div>
     </section>
   );

@@ -18,13 +18,13 @@ export function GPUDetail({ gpu, onBack }: Props) {
   return (
     <section className="detail-page">
       <button type="button" className="back-button" onClick={onBack}>
-        <ArrowLeft size={16} />
-        overview
+        <ArrowLeft size={14} />
+        Back
       </button>
 
       <div className="detail-hero">
         <div>
-          <p className="eyebrow">gpu {gpu.id}</p>
+          <div className="eyebrow">gpu {gpu.id}</div>
           <h2>{gpu.name}</h2>
           <span>{gpu.processes.length} active processes</span>
         </div>
@@ -33,36 +33,60 @@ export function GPUDetail({ gpu, onBack }: Props) {
 
       <div className="metric-card-grid">
         <article className="metric-card">
-          <span>utilization</span>
+          <span>Utilization</span>
           <strong>{gpu.utilization}%</strong>
           <div className="meter"><i style={{ width: `${gpu.utilization}%` }} /></div>
         </article>
         <article className="metric-card">
-          <span>vram</span>
+          <span>VRAM</span>
           <strong>{formatMemory(gpu.memoryUsed)}</strong>
           <p>{formatMemory(gpu.memoryTotal)} total</p>
           <div className="meter"><i style={{ width: `${memoryPercent}%` }} /></div>
         </article>
         <article className="metric-card">
-          <span>temperature</span>
-          <strong>{gpu.temperature}C</strong>
-          <p>fan {gpu.fanSpeed}%</p>
-        </article>
-        <article className="metric-card">
-          <span>power</span>
-          <strong>{gpu.powerDraw}W</strong>
-          <p>{gpu.powerLimit}W limit</p>
-          <div className="meter"><i style={{ width: `${Math.min(powerPercent, 100)}%` }} /></div>
+          <span>Temperature</span>
+          <strong>{gpu.temperature}°C</strong>
         </article>
       </div>
 
       <GPUTelemetry gpu={gpu} />
 
+      <div className="secondary-section">
+        <div className="surface-head">
+          <div>
+            <div className="eyebrow">details</div>
+            <h2>Secondary metrics</h2>
+          </div>
+        </div>
+        <div className="secondary-grid">
+          <div>
+            <span>Fan speed</span>
+            <strong>{gpu.fanSpeed}%</strong>
+          </div>
+          <div>
+            <span>Power draw</span>
+            <strong>{gpu.powerDraw}W</strong>
+          </div>
+          <div>
+            <span>Power limit</span>
+            <strong>{gpu.powerLimit}W</strong>
+          </div>
+          <div>
+            <span>VRAM %</span>
+            <strong>{memoryPercent}%</strong>
+          </div>
+          <div>
+            <span>Power %</span>
+            <strong>{powerPercent}%</strong>
+          </div>
+        </div>
+      </div>
+
       <div className="detail-processes">
         <div className="surface-head">
           <div>
-            <p className="eyebrow">attached</p>
-            <h2>processes on GPU {gpu.id}</h2>
+            <div className="eyebrow">attached</div>
+            <h2>Processes on GPU {gpu.id}</h2>
           </div>
         </div>
         {gpu.processes.length === 0 ? (
@@ -72,7 +96,7 @@ export function GPUDetail({ gpu, onBack }: Props) {
             <div className="detail-process-row" key={`${proc.gpuId}:${proc.pid}`}>
               <div>
                 <strong>{proc.user}</strong>
-                <span>PID {proc.pid} / UID {proc.uid} / {formatMemory(proc.memoryUsage)}</span>
+                <span>PID {proc.pid} / {formatMemory(proc.memoryUsage)}</span>
               </div>
               <code>{proc.cmdLine || proc.name}</code>
             </div>
