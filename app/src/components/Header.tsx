@@ -1,17 +1,11 @@
 import { useGPUStore } from '@/store/gpuStore';
 
 export function Header() {
-  const { dataSource, gpus, isConnected } = useGPUStore();
+  const { dataSource, isConnected } = useGPUStore();
 
   let statusClass = 'offline';
-  let statusLabel = 'offline';
-  if (dataSource === 'live') {
-    statusClass = 'online';
-    statusLabel = 'live';
-  } else if (dataSource === 'mock' && isConnected) {
-    statusClass = 'mock';
-    statusLabel = 'mock';
-  }
+  if (dataSource === 'live') statusClass = 'online';
+  else if (dataSource === 'mock' && isConnected) statusClass = 'mock';
 
   return (
     <header className="app-header">
@@ -19,10 +13,7 @@ export function Header() {
       <div className="header-meta">
         <div className="header-meta-item">
           <span className={`status-dot ${statusClass}`} />
-          <span>{statusLabel}</span>
-        </div>
-        <div className="header-meta-item mono">
-          {gpus.length} GPU{gpus.length !== 1 ? 's' : ''}
+          <span>{dataSource === 'live' ? 'live' : dataSource === 'mock' ? 'mock' : 'offline'}</span>
         </div>
       </div>
     </header>

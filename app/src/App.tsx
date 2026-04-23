@@ -1,13 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { GPUOverview } from '@/components/GPUOverview';
 import { ProcessTable } from '@/components/ProcessTable';
-import { ResourceChart } from '@/components/ResourceChart';
-import { StatusBar } from '@/components/StatusBar';
 import { useGPUStore, startMockEngine, stopMockEngine } from '@/store/gpuStore';
 import type { DashboardData } from '@/types';
-
-type View = 'overview' | 'processes' | 'telemetry';
 
 function WebSocketConnector() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -73,27 +69,45 @@ function WebSocketConnector() {
   return null;
 }
 
-function ViewContent({ view }: { view: View }) {
-  const gpus = useGPUStore((s) => s.gpus);
-  const allProcesses = gpus.flatMap((g) => g.processes);
+function SystemBar() {
+  const { gpus, system, lastUpdate } = useGPUStore();
+
+  const timeStr = lastUpdate
+    ? new Date(lastUpdate).toLocaleTimeString('en-US', {
+        hour12: false,
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    : '--:--:--';
 
   return (
-    <div className="view-content" key={view}>
-      {view === 'overview' && (
-        <div className="space-y-4">
-          <GPUOverview gpus={gpus} />
-          <ResourceChart compact />
-        </div>
-      )}
-      {view === 'processes' && <ProcessTable processes={allProcesses} />}
-      {view === 'telemetry' && <ResourceChart />}
+    <div className="system-bar">
+      <div className="system-bar-item">
+        <span>CPU</span>
+        <strong>{Math.round(system?.cpuUtilization ?? 0)}%</strong>
+      </div>
+      <div className="system-bar-item">
+        <span>RAM</span>
+        <strong>
+          {system?.memoryTotal
+            ? `${Math.round((system.memoryUsed / system.memoryTotal) * 100)}%`
+            : '0%'}
+        </strong>
+      </div>
+      <div className="system-bar-item">
+        <span>GPUs</span>
+        <strong>{gpus.length}</strong>
+      </div>
+      <div className="system-bar-item">
+        <span>Updated</span>
+        <strong>{timeStr}</strong>
+      </div>
     </div>
   );
 }
 
 function App() {
-  const [view, setView] = useState<View>('overview');
-
   useEffect(() => {
     startMockEngine();
     return () => stopMockEngine();
@@ -103,27 +117,12 @@ function App() {
     <div className="min-h-screen flex flex-col app-shell">
       <WebSocketConnector />
       <Header />
+      <SystemBar />
 
       <main className="flex-1 overflow-y-auto">
-        <div className="view-switcher" role="tablist" aria-label="Dashboard views">
-          {(['overview', 'processes', 'telemetry'] as const).map((item) => (
-            <button
-              key={item}
-              type="button"
-              className={view === item ? 'active' : ''}
-              onClick={() => setView(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
-
-        <div className="p-4">
-          <ViewContent view={view} />
-        </div>
+        <GPUOverview />
+        <ProcessTable />
       </main>
-
-      <StatusBar />
     </div>
   );
 }
