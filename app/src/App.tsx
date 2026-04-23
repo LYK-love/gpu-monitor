@@ -1,21 +1,49 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Header } from '@/components/Header';
 import { GPUOverview } from '@/components/GPUOverview';
 import { ProcessTable } from '@/components/ProcessTable';
 import { useGPUStore, startMockEngine, stopMockEngine } from '@/store/gpuStore';
 import type { DashboardData } from '@/types';
 
+const RECONNECT_DELAY_MS = 1500;
+type ThemeMode = 'dark' | 'light';
+
 function WebSocketConnector() {
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<number | null>(null);
+  const shouldReconnectRef = useRef(true);
   const { wsUrl, setConnectionStatus, setDataSource, setGPUs, setSystem } = useGPUStore();
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
+
+    function clearReconnectTimer() {
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    }
+
+    function scheduleReconnect(message: string) {
+      if (!shouldReconnectRef.current) {
+        return;
+      }
+      clearReconnectTimer();
+      setDataSource('mock', message);
+      startMockEngine();
+      reconnectTimerRef.current = window.setTimeout(() => {
+        reconnectTimerRef.current = null;
+        connect();
+      }, RECONNECT_DELAY_MS);
+    }
+
     function connect() {
       try {
         const ws = new WebSocket(wsUrl);
         wsRef.current = ws;
 
         ws.onopen = () => {
+          clearReconnectTimer();
           setConnectionStatus(true, false);
           stopMockEngine();
         };
@@ -43,25 +71,26 @@ function WebSocketConnector() {
         };
 
         ws.onclose = () => {
-          setConnectionStatus(false, true);
-          startMockEngine();
           wsRef.current = null;
+          scheduleReconnect('Live GPU stream disconnected; retrying');
         };
 
         ws.onerror = () => {
           ws.close();
         };
       } catch {
-        setConnectionStatus(false, true);
-        startMockEngine();
+        scheduleReconnect('Unable to connect to the GPU stream; retrying');
       }
     }
 
     connect();
 
     return () => {
+      shouldReconnectRef.current = false;
+      clearReconnectTimer();
       if (wsRef.current) {
         wsRef.current.close();
+        wsRef.current = null;
       }
     };
   }, [setConnectionStatus, setDataSource, setGPUs, setSystem, wsUrl]);
@@ -108,15 +137,29 @@ function SystemBar() {
 }
 
 function App() {
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    const storedTheme = window.localStorage.getItem('gpumon-theme');
+    if (storedTheme === 'dark' || storedTheme === 'light') {
+      return storedTheme;
+    }
+
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  });
+
   useEffect(() => {
     startMockEngine();
     return () => stopMockEngine();
   }, []);
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem('gpumon-theme', theme);
+  }, [theme]);
+
   return (
     <div className="min-h-screen flex flex-col app-shell">
       <WebSocketConnector />
-      <Header />
+      <Header theme={theme} onToggleTheme={() => setTheme((current) => (current === 'dark' ? 'light' : 'dark'))} />
       <SystemBar />
 
       <main className="flex-1 overflow-y-auto">

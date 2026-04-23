@@ -1,4 +1,4 @@
-import { StrictMode } from 'react'
+import { Component, StrictMode, type ErrorInfo, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import './index.css'
@@ -14,29 +14,80 @@ declare global {
   }
 }
 
-const configuredFont = window.__GPUMON_CONFIG__?.fontFamily || 'Fira Code';
+type RootErrorBoundaryProps = {
+  children: ReactNode;
+};
+
+type RootErrorBoundaryState = {
+  error: Error | null;
+};
+
+class RootErrorBoundary extends Component<RootErrorBoundaryProps, RootErrorBoundaryState> {
+  state: RootErrorBoundaryState = {
+    error: null,
+  };
+
+  static getDerivedStateFromError(error: Error): RootErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('GPU Monitor failed to render', error, info);
+  }
+
+  render() {
+    if (!this.state.error) {
+      return this.props.children;
+    }
+
+    return (
+      <div className="crash-shell">
+        <div className="crash-card">
+          <div className="crash-prelude">Render failure</div>
+          <h1>GPU Monitor could not render the dashboard.</h1>
+          <p>
+            The page hit a runtime error before React finished mounting. Reload after rebuilding,
+            or inspect the browser console if this persists.
+          </p>
+          <pre className="crash-stack">{this.state.error.stack || this.state.error.message}</pre>
+        </div>
+      </div>
+    );
+  }
+}
+
+const configuredFont = window.__GPUMON_CONFIG__?.fontFamily?.trim();
 const configuredFontCss = window.__GPUMON_CONFIG__?.fontCssUrl;
 
 if (configuredFontCss) {
-  const fontLink = document.createElement('link');
-  fontLink.rel = 'stylesheet';
-  fontLink.href = configuredFontCss;
-  document.head.appendChild(fontLink);
+  const existingFontLink = document.querySelector<HTMLLinkElement>(
+    `link[rel="stylesheet"][href="${configuredFontCss}"]`,
+  );
+  if (!existingFontLink) {
+    const fontLink = document.createElement('link');
+    fontLink.rel = 'stylesheet';
+    fontLink.href = configuredFontCss;
+    document.head.appendChild(fontLink);
+  }
 }
 
-document.documentElement.style.setProperty(
-  '--app-font',
-  `"${configuredFont}", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`,
-);
-document.documentElement.style.setProperty(
-  '--mono-font',
-  `"${configuredFont}", "Fira Code", "JetBrains Mono", "SFMono-Regular", "Cascadia Code", "Liberation Mono", Consolas, monospace`,
-);
+if (configuredFont) {
+  document.documentElement.style.setProperty(
+    '--font-ui',
+    `"${configuredFont}", -apple-system, BlinkMacSystemFont, sans-serif`,
+  );
+  document.documentElement.style.setProperty(
+    '--font-mono',
+    `"${configuredFont}", "IBM Plex Mono", "SFMono-Regular", "Fira Code", Consolas, monospace`,
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <RootErrorBoundary>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </RootErrorBoundary>
   </StrictMode>,
 )

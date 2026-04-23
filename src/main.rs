@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     fs,
     io::ErrorKind,
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
     sync::{Mutex, OnceLock},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -14,8 +14,9 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
         State,
     },
-    http::header,
-    response::IntoResponse,
+    http::{header, HeaderValue},
+    middleware::map_response,
+    response::{IntoResponse, Response},
     routing::get,
     Router,
 };
@@ -219,8 +220,8 @@ async fn run_web(
     let app_dir = root.join("app");
     let dist_dir = app_dir.join("dist");
 
-    if !dist_dir.join("index.html").exists() {
-        println!("[WEB] Building web app...");
+    if let Some(reason) = web_build_reason(&app_dir, &dist_dir)? {
+        println!("[WEB] Building web app ({reason})...");
         let status = TokioCommand::new("npm")
             .arg("run")
             .arg("build")
@@ -319,11 +320,20 @@ fn web_router(dist_dir: PathBuf, ws_url: String, font: String, font_css: String)
     Router::new()
         .route("/gpumon-config.js", get(config_handler))
         .fallback_service(ServeDir::new(dist_dir))
+        .layer(map_response(disable_cache))
         .with_state(WebState {
             ws_url,
             font,
             font_css,
         })
+}
+
+async fn disable_cache(mut response: Response) -> Response {
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("no-store, no-cache, must-revalidate"),
+    );
+    response
 }
 
 async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
@@ -726,6 +736,94 @@ fn project_root() -> Result<PathBuf> {
         }
     }
     Ok(cwd)
+}
+
+fn web_build_reason(app_dir: &Path, dist_dir: &Path) -> Result<Option<String>> {
+    let dist_index = dist_dir.join("index.html");
+    if !dist_index.exists() {
+        return Ok(Some("missing app/dist/index.html".to_string()));
+    }
+
+    let dist_mtime = fs::metadata(&dist_index)
+        .with_context(|| format!("failed to read metadata for {}", dist_index.display()))?
+        .modified()
+        .with_context(|| format!("failed to read modified time for {}", dist_index.display()))?;
+
+    let watch_paths = [
+        "src",
+        "public",
+        "index.html",
+        "package.json",
+        "package-lock.json",
+        "vite.config.ts",
+        "tailwind.config.js",
+        "postcss.config.js",
+        "tsconfig.json",
+        "tsconfig.app.json",
+        "tsconfig.node.json",
+        "components.json",
+    ];
+
+    let mut newest_source: Option<(SystemTime, PathBuf)> = None;
+
+    for relative in watch_paths {
+        let path = app_dir.join(relative);
+        if !path.exists() {
+            continue;
+        }
+        if let Some((mtime, changed_path)) = latest_modified_path(&path)? {
+            let is_newer = newest_source
+                .as_ref()
+                .map(|(current, _)| mtime > *current)
+                .unwrap_or(true);
+            if is_newer {
+                newest_source = Some((mtime, changed_path));
+            }
+        }
+    }
+
+    Ok(newest_source.and_then(|(mtime, changed_path)| {
+        (mtime > dist_mtime).then(|| {
+            let relative = changed_path
+                .strip_prefix(app_dir)
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|_| changed_path.display().to_string());
+            format!("{relative} changed after the last web build")
+        })
+    }))
+}
+
+fn latest_modified_path(path: &Path) -> Result<Option<(SystemTime, PathBuf)>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let metadata = fs::metadata(path)
+        .with_context(|| format!("failed to read metadata for {}", path.display()))?;
+    let mut newest = metadata
+        .modified()
+        .ok()
+        .map(|mtime| (mtime, path.to_path_buf()));
+
+    if metadata.is_dir() {
+        for entry in fs::read_dir(path)
+            .with_context(|| format!("failed to read directory {}", path.display()))?
+        {
+            let entry =
+                entry.with_context(|| format!("failed to read entry in {}", path.display()))?;
+            if let Some(candidate) = latest_modified_path(&entry.path())? {
+                let is_newer = newest
+                    .as_ref()
+                    .map(|(current, _)| candidate.0 > *current)
+                    .unwrap_or(true);
+                if is_newer {
+                    newest = Some(candidate);
+                }
+            }
+        }
+    }
+
+    Ok(newest)
 }
 
 async fn bind_websocket_listener(addr: &BindAddr) -> Result<(TcpListener, u16)> {

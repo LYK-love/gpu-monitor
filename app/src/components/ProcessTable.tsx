@@ -1,20 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Search } from 'lucide-react';
+import { CircleHelp, Search } from 'lucide-react';
 import { useGPUStore } from '@/store/gpuStore';
-
 
 function formatMemory(mib: number): string {
   return mib >= 1024 ? `${(mib / 1024).toFixed(1)} GB` : `${mib} MB`;
 }
 
 export function ProcessTable() {
-  const processes = useGPUStore((s) => s.gpus.flatMap((g) => g.processes));
+  const gpus = useGPUStore((s) => s.gpus);
   const processGpuFilter = useGPUStore((s) => s.processGpuFilter);
   const processUserFilter = useGPUStore((s) => s.processUserFilter);
   const setProcessGpuFilter = useGPUStore((s) => s.setProcessGpuFilter);
   const toggleProcessUserFilter = useGPUStore((s) => s.toggleProcessUserFilter);
 
   const [query, setQuery] = useState('');
+  const [showInfo, setShowInfo] = useState(false);
+
+  const processes = useMemo(() => gpus.flatMap((gpu) => gpu.processes), [gpus]);
 
   const gpuOptions = useMemo(() => {
     return Array.from(new Set(processes.map((proc) => proc.gpuId))).sort((a, b) => a - b);
@@ -43,8 +45,19 @@ export function ProcessTable() {
     <section className="process-section">
       <div className="process-section-head">
         <div>
-          <h2>Processes</h2>
-          <span className="mono" style={{ color: 'var(--text-muted)', fontSize: 12, marginTop: 4, display: 'block' }}>
+          <div className="section-title-row">
+            <h2>Processes</h2>
+            <button
+              type="button"
+              className={`info-trigger ${showInfo ? 'active' : ''}`}
+              onClick={() => setShowInfo((current) => !current)}
+              aria-expanded={showInfo}
+              aria-label="Explain which processes appear in this table"
+            >
+              <CircleHelp size={14} />
+            </button>
+          </div>
+          <span className="section-support">
             {visible.length} shown / {processes.length} total
           </span>
         </div>
@@ -79,8 +92,18 @@ export function ProcessTable() {
         </div>
       </div>
 
+      {showInfo && (
+        <div className="process-info-panel">
+          <div className="process-info-title">What is listed here</div>
+          <p>
+            This table shows compute processes that currently hold GPU memory, based on
+            `nvidia-smi --query-compute-apps`. Entries without GPU VRAM usage do not appear here.
+          </p>
+        </div>
+      )}
+
       {userOptions.length > 0 && (
-        <div style={{ marginBottom: 12 }}>
+        <div className="process-user-filters">
           <div className="filter-pill-row">
             {userOptions.map((user) => (
               <button
