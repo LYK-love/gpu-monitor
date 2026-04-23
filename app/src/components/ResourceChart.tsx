@@ -10,7 +10,7 @@ import {
 import { useGPUStore } from '@/store/gpuStore';
 import type { ResourceHistoryPoint } from '@/types';
 
-const DEVICE_COLORS = ['#f4f4f5', '#a1a1aa', '#71717a', '#52525b', '#3f3f46', '#27272a'];
+const DEVICE_COLORS = ['#e8e8e9', '#a1a1aa', '#6b6b74', '#52525b', '#3f3f46', '#27272a'];
 
 const METRICS = [
   { id: 'utilization', label: 'Utilization', unit: '%', max: 100 },
@@ -79,7 +79,6 @@ export function ResourceChart({ compact = false }: Props) {
       value: number;
       color: string;
       dataKey: keyof ResourceHistoryPoint;
-      focusGpuId?: number;
     }[] = [];
 
     list.push({
@@ -87,7 +86,7 @@ export function ResourceChart({ compact = false }: Props) {
       label: 'CPU',
       sublabel: 'utilization',
       value: Math.round(system?.cpuUtilization ?? 0),
-      color: '#f4f4f5',
+      color: '#e8e8e9',
       dataKey: 'systemCpu',
     });
 
@@ -108,12 +107,22 @@ export function ResourceChart({ compact = false }: Props) {
         value: gpu.utilization,
         color: DEVICE_COLORS[Math.min(index + 2, DEVICE_COLORS.length - 1)],
         dataKey: `gpu${gpu.id}_util` as keyof ResourceHistoryPoint,
-        focusGpuId: gpu.id,
       });
     });
 
     return list.slice(0, 5);
   }, [gpus, system]);
+
+  const tooltipStyle = {
+    backgroundColor: 'rgba(8,8,10,0.92)',
+    backdropFilter: 'blur(8px)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '6px',
+    color: '#e8e8e9',
+    fontFamily: 'var(--mono-font)',
+    fontSize: '11px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+  };
 
   if (compact) {
     return (
@@ -139,22 +148,15 @@ export function ResourceChart({ compact = false }: Props) {
                     <LineChart data={history} margin={{ top: 6, right: 0, left: 0, bottom: 0 }}>
                       <YAxis domain={[0, 100]} hide />
                       <Tooltip
-                        contentStyle={{
-                          backgroundColor: '#111113',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          borderRadius: '4px',
-                          color: '#f4f4f5',
-                          fontFamily: 'var(--mono-font)',
-                          fontSize: '11px',
-                        }}
-                        labelStyle={{ color: '#71717a' }}
+                        contentStyle={tooltipStyle}
+                        labelStyle={{ color: '#6b6b74' }}
                         formatter={(value: number) => [`${value}%`, metric.sublabel]}
                       />
                       <Line
                         type="monotone"
                         dataKey={metric.dataKey}
                         stroke={metric.color}
-                        strokeWidth={1.5}
+                        strokeWidth={2}
                         dot={false}
                         isAnimationActive={false}
                       />
@@ -174,7 +176,7 @@ export function ResourceChart({ compact = false }: Props) {
       <div className="telemetry-head">
         <div>
           <div className="eyebrow">metrics</div>
-          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>Telemetry</h2>
+          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 500, letterSpacing: '-0.01em' }}>Telemetry</h2>
         </div>
         <div className="filter-pill-row">
           {METRICS.map((m) => (
@@ -190,8 +192,8 @@ export function ResourceChart({ compact = false }: Props) {
         </div>
       </div>
 
-      <div style={{ padding: '12px 20px 0', borderBottom: '1px solid var(--border)' }}>
-        <div className="filter-pill-row" style={{ marginBottom: 12 }}>
+      <div style={{ padding: '14px 24px 0', borderBottom: '1px solid var(--border)' }}>
+        <div className="filter-pill-row" style={{ marginBottom: 14 }}>
           <button
             type="button"
             className={`filter-pill ${telemetryDevices.has('cpu') ? 'active' : ''}`}
@@ -221,28 +223,21 @@ export function ResourceChart({ compact = false }: Props) {
               <LineChart data={history} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <XAxis
                   dataKey="timeStr"
-                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tick={{ fill: '#3c3c42', fontSize: 10, fontFamily: 'var(--mono-font)' }}
                   tickLine={false}
                   axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
                   minTickGap={30}
                 />
                 <YAxis
                   domain={[0, metricDef.max]}
-                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tick={{ fill: '#3c3c42', fontSize: 10, fontFamily: 'var(--mono-font)' }}
                   tickLine={false}
                   axisLine={false}
                   width={36}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#111113',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '4px',
-                    color: '#f4f4f5',
-                    fontFamily: 'var(--mono-font)',
-                    fontSize: '11px',
-                  }}
-                  labelStyle={{ color: '#71717a' }}
+                  contentStyle={tooltipStyle}
+                  labelStyle={{ color: '#6b6b74' }}
                   formatter={(value: number, name: string) => {
                     return [`${value}${metricDef.unit}`, name];
                   }}
@@ -254,7 +249,7 @@ export function ResourceChart({ compact = false }: Props) {
                     dataKey={device.dataKey}
                     name={device.label}
                     stroke={device.color}
-                    strokeWidth={1.5}
+                    strokeWidth={2}
                     dot={false}
                     isAnimationActive={false}
                   />

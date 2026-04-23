@@ -22,9 +22,9 @@ const METRICS: Array<{
   unit: string;
   color: string;
 }> = [
-  { key: 'utilization', label: 'utilization', unit: '%', color: '#f4f4f5' },
+  { key: 'utilization', label: 'utilization', unit: '%', color: '#e8e8e9' },
   { key: 'memoryUsed', label: 'vram', unit: '%', color: '#a1a1aa' },
-  { key: 'powerPercent', label: 'power', unit: '%', color: '#71717a' },
+  { key: 'powerPercent', label: 'power', unit: '%', color: '#6b6b74' },
   { key: 'temperature', label: 'temp', unit: '°C', color: '#52525b' },
   { key: 'fanSpeed', label: 'fan', unit: '%', color: '#3f3f46' },
 ];
@@ -45,12 +45,23 @@ export function GPUTelemetry({ gpu }: Props) {
     });
   };
 
+  const tooltipStyle = {
+    backgroundColor: 'rgba(8,8,10,0.92)',
+    backdropFilter: 'blur(8px)',
+    border: '1px solid rgba(255,255,255,0.08)',
+    borderRadius: '6px',
+    color: '#e8e8e9',
+    fontFamily: 'var(--mono-font)',
+    fontSize: '11px',
+    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+  };
+
   return (
     <section className="telemetry-panel">
       <div className="telemetry-head">
         <div>
           <div className="eyebrow">gpu telemetry</div>
-          <h2 style={{ margin: 0, fontSize: 13, fontWeight: 500 }}>GPU {gpu.id} history</h2>
+          <h2 style={{ margin: 0, fontSize: 14, fontWeight: 500, letterSpacing: '-0.01em' }}>GPU {gpu.id} history</h2>
         </div>
         <div className="filter-pill-row">
           {METRICS.map((metric) => (
@@ -75,27 +86,20 @@ export function GPUTelemetry({ gpu }: Props) {
               <LineChart data={data} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <XAxis
                   dataKey="timeStr"
-                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tick={{ fill: '#3c3c42', fontSize: 10, fontFamily: 'var(--mono-font)' }}
                   tickLine={false}
                   axisLine={{ stroke: 'rgba(255,255,255,0.06)' }}
                   minTickGap={30}
                 />
                 <YAxis
                   domain={[0, 100]}
-                  tick={{ fill: '#3f3f46', fontSize: 10, fontFamily: 'var(--mono-font)' }}
+                  tick={{ fill: '#3c3c42', fontSize: 10, fontFamily: 'var(--mono-font)' }}
                   tickLine={false}
                   axisLine={false}
                   width={36}
                 />
                 <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#111113',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    borderRadius: '4px',
-                    color: '#f4f4f5',
-                    fontFamily: 'var(--mono-font)',
-                    fontSize: '11px',
-                  }}
+                  contentStyle={tooltipStyle}
                   formatter={(value: number, name: string) => {
                     const metric = METRICS.find((item) => item.key === name);
                     return [`${value}${metric?.unit ?? ''}`, metric?.label ?? name];
@@ -112,7 +116,7 @@ export function GPUTelemetry({ gpu }: Props) {
                     dataKey={metric.key}
                     name={metric.key}
                     stroke={metric.color}
-                    strokeWidth={1.5}
+                    strokeWidth={2}
                     dot={false}
                     isAnimationActive={false}
                   />

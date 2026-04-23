@@ -74,14 +74,16 @@ function ExpandedPanel({ gpu }: { gpu: GPUData }) {
               <YAxis domain={[0, 100]} hide />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: '#111113',
+                  backgroundColor: 'rgba(8,8,10,0.92)',
+                  backdropFilter: 'blur(8px)',
                   border: '1px solid rgba(255,255,255,0.08)',
-                  borderRadius: '4px',
-                  color: '#f4f4f5',
+                  borderRadius: '6px',
+                  color: '#e8e8e9',
                   fontFamily: 'var(--mono-font)',
                   fontSize: '11px',
+                  boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
                 }}
-                labelStyle={{ color: '#71717a' }}
+                labelStyle={{ color: '#6b6b74' }}
                 formatter={(value: number, name: string) => {
                   const label = name === 'utilization' ? 'util' : name === 'memoryUsed' ? 'vram' : name;
                   return [`${value}%`, label];
@@ -90,16 +92,16 @@ function ExpandedPanel({ gpu }: { gpu: GPUData }) {
               <Line
                 type="monotone"
                 dataKey="utilization"
-                stroke="#f4f4f5"
-                strokeWidth={1.5}
+                stroke="#e8e8e9"
+                strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
               />
               <Line
                 type="monotone"
                 dataKey="memoryUsed"
-                stroke="#71717a"
-                strokeWidth={1.5}
+                stroke="#6b6b74"
+                strokeWidth={2}
                 dot={false}
                 isAnimationActive={false}
               />
@@ -110,7 +112,7 @@ function ExpandedPanel({ gpu }: { gpu: GPUData }) {
 
       {gpu.processes.length > 0 && (
         <div className="expanded-processes">
-          <div className="eyebrow" style={{ marginBottom: 10 }}>
+          <div className="eyebrow" style={{ marginBottom: 12 }}>
             {gpu.processes.length} process{gpu.processes.length !== 1 ? 'es' : ''}
           </div>
           <div className="expanded-process-list">
@@ -185,7 +187,11 @@ export function GPUOverview({ gpus }: Props) {
                   <div className="gpu-card-value faint">{gpu.processes.length}</div>
                 </div>
               </button>
-              {isExpanded && <ExpandedPanel gpu={gpu} />}
+              <div className={`gpu-card-expanded-wrap ${isExpanded ? 'open' : ''}`}>
+                <div className="gpu-card-expanded-inner">
+                  <ExpandedPanel gpu={gpu} />
+                </div>
+              </div>
             </div>
           );
         })}

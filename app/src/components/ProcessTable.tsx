@@ -140,7 +140,7 @@ export function ProcessTable({ processes }: Props) {
         </div>
       </div>
 
-      <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)' }}>
         <div className="filter-pill-row">
           <span className="faint" style={{ fontSize: 11, marginRight: 4 }}>Users:</span>
           {userOptions.map((user) => (
