@@ -135,7 +135,7 @@ export function ProcessTable() {
               <tr key={`${proc.gpuId}:${proc.pid}`}>
                 <td className="col-gpu">GPU {proc.gpuId}</td>
                 <td className="col-pid">{proc.pid}</td>
-                <td className="col-user">{proc.user}</td>
+                <td className="col-user" title={proc.user}>{proc.user}</td>
                 <td className="col-vram">{formatMemory(proc.memoryUsage)}</td>
                 <td className="col-cmd" title={proc.cmdLine || proc.name}>
                   {proc.cmdLine || proc.name}

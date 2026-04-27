@@ -1,6 +1,20 @@
 # GPU Monitor
 
+> You can use AI to translate or explain this document and the rest of the project's documentation in your preferred language.
+>
+> 你可以使用 AI 将本文档和本项目的其他文档翻译成你偏好的语言，或为你解读其中的内容。
+
 GPU Monitor is a small NVIDIA GPU dashboard. It ships as a Rust binary with a React web UI and reads live metrics from `nvidia-smi`.
+
+## Demo
+
+`gpu-monitor tiu` opens an interactive TUI:
+
+![tui_overview](./assets/tui_overview.png)
+
+`gpu-monitor web` opens an interactive web page:
+
+![web_overview](./assets/web_overview.png)
 
 ## Requirements
 
@@ -140,3 +154,7 @@ npm run dev
 - [CLI](docs/cli.md)
 - [Design](docs/design.md)
 - [Workflows](docs/workflows.md)
+
+## License
+
+MIT

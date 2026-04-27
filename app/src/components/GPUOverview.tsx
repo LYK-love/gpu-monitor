@@ -146,7 +146,7 @@ export function GPUOverview() {
           : 0;
 
         return (
-          <div key={gpu.id}>
+          <div key={gpu.id} className={`gpu-card-stack ${isExpanded ? 'expanded' : ''}`}>
             <button
               type="button"
               className={`gpu-card ${isExpanded ? 'active' : ''}`}
@@ -155,10 +155,11 @@ export function GPUOverview() {
               <div className="gpu-card-header">
                 <div>
                   <h3>GPU {gpu.id}</h3>
-                  <div className="gpu-name">{gpu.name}</div>
+                  <div className="gpu-name" title={gpu.name}>{gpu.name}</div>
                 </div>
                 <div className="gpu-card-meta">
                   <span>{gpu.processes.length} procs</span>
+                  <span>{formatPower(gpu.powerDraw)}</span>
                 </div>
               </div>
 

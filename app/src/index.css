@@ -192,21 +192,24 @@
 
   .theme-toggle {
     align-items: center;
-    background: linear-gradient(180deg, var(--accent-soft), transparent), var(--bg-surface);
+    backdrop-filter: blur(16px);
+    background: color-mix(in srgb, var(--bg-surface) 52%, transparent);
     border: 1px solid var(--border);
     border-radius: 999px;
-    box-shadow: var(--shadow-soft);
+    box-shadow: none;
     color: var(--text-primary);
     cursor: pointer;
     display: inline-flex;
     gap: 8px;
-    padding: 8px 12px;
-    transition: transform 160ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease);
+    padding: 7px 11px;
+    transition: transform 160ms var(--ease), border-color 160ms var(--ease), background 160ms var(--ease), box-shadow 160ms var(--ease);
   }
 
   .theme-toggle:hover {
     border-color: var(--border-active);
     transform: translateY(-1px);
+    background: color-mix(in srgb, var(--bg-elevated) 58%, transparent);
+    box-shadow: 0 10px 24px color-mix(in srgb, var(--accent) 10%, transparent);
   }
 
   .theme-toggle span {
@@ -253,11 +256,16 @@
 
   /* GPU Cards */
   .gpu-card-list {
-    display: flex;
-    flex-direction: column;
+    display: grid;
     gap: 12px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
     padding: 0 28px;
     margin-top: 24px;
+    align-items: start;
+  }
+
+  .gpu-card-stack.expanded {
+    grid-column: 1 / -1;
   }
 
   .gpu-card {
@@ -266,7 +274,7 @@
     border-radius: 18px;
     box-shadow: var(--shadow-soft);
     cursor: pointer;
-    padding: 22px 22px 20px;
+    padding: 16px 16px 14px;
     text-align: left;
     transition: border-color 200ms var(--ease), background 200ms var(--ease), transform 200ms var(--ease), box-shadow 200ms var(--ease);
     width: 100%;
@@ -288,13 +296,13 @@
   .gpu-card-header {
     align-items: center;
     display: flex;
-    gap: 16px;
+    gap: 12px;
     justify-content: space-between;
-    margin-bottom: 16px;
+    margin-bottom: 12px;
   }
 
   .gpu-card-header h3 {
-    font-size: 18px;
+    font-size: 16px;
     font-weight: 600;
     margin: 0;
     letter-spacing: -0.03em;
@@ -302,8 +310,12 @@
 
   .gpu-card-header .gpu-name {
     color: var(--text-secondary);
-    font-size: 13px;
-    margin-top: 5px;
+    font-size: 12px;
+    margin-top: 4px;
+    max-width: min(30vw, 320px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .gpu-card-meta {
@@ -311,21 +323,23 @@
     color: var(--text-muted);
     display: flex;
     font-family: var(--font-mono);
-    font-size: 11px;
-    gap: 12px;
+    font-size: 10px;
+    gap: 10px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
   }
 
   .gpu-bars {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
 
   .gpu-bar-row {
     align-items: center;
     display: grid;
-    gap: 12px;
-    grid-template-columns: 90px 1fr 60px;
+    gap: 10px;
+    grid-template-columns: 54px 1fr minmax(90px, 120px);
   }
 
   .gpu-bar-label {
@@ -339,7 +353,7 @@
   .gpu-bar-track {
     background: var(--bg-field);
     border-radius: 999px;
-    height: 8px;
+    height: 6px;
     overflow: hidden;
   }
 
@@ -352,8 +366,11 @@
   .gpu-bar-value {
     color: var(--text-secondary);
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 11px;
     text-align: right;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .gpu-expanded-shell {
@@ -362,7 +379,7 @@
     border-top: 0;
     border-radius: 0 0 18px 18px;
     box-shadow: var(--shadow-soft);
-    padding: 20px;
+    padding: 16px;
   }
 
   .gpu-detail-panel {
@@ -371,9 +388,9 @@
 
   .gpu-detail-grid {
     display: grid;
-    gap: 12px;
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    margin-bottom: 16px;
+    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    margin-bottom: 12px;
   }
 
   .gpu-detail-card {
@@ -381,7 +398,7 @@
     border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: var(--shadow-soft);
-    padding: 16px;
+    padding: 14px;
   }
 
   .gpu-detail-card.accent {
@@ -394,7 +411,7 @@
     font-family: var(--font-mono);
     font-size: 10px;
     letter-spacing: 0.08em;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
     text-transform: uppercase;
   }
 
@@ -403,15 +420,15 @@
     display: flex;
     flex-direction: column;
     font-family: var(--font-mono);
-    font-size: 21px;
+    font-size: 18px;
     font-weight: 600;
-    gap: 4px;
+    gap: 2px;
     letter-spacing: -0.04em;
   }
 
   .gpu-detail-value span {
     color: var(--text-secondary);
-    font-size: 13px;
+    font-size: 12px;
     letter-spacing: 0;
   }
 
@@ -420,16 +437,16 @@
     display: flex;
     font-family: var(--font-mono);
     font-size: 11px;
-    margin-top: 14px;
+    margin-top: 10px;
   }
 
   .gpu-chart-shell {
     background: linear-gradient(180deg, color-mix(in srgb, var(--bg-contrast) 88%, transparent), var(--bg-contrast));
     border: 1px solid var(--border);
     border-radius: 16px;
-    height: 120px;
-    margin-bottom: 16px;
-    padding: 10px;
+    height: 104px;
+    margin-bottom: 12px;
+    padding: 8px;
   }
 
   .detail-process-block {
@@ -468,7 +485,7 @@
     display: grid;
     gap: 12px;
     grid-template-columns: 110px 72px 110px 1fr;
-    padding: 12px 14px;
+    padding: 10px 12px;
   }
 
   .detail-process-columns {
@@ -494,6 +511,9 @@
     color: var(--text-primary);
     font-size: 13px;
     font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .detail-process-pid,
@@ -673,6 +693,7 @@
   .process-table {
     width: 100%;
     border-collapse: collapse;
+    table-layout: fixed;
   }
 
   .process-table th {
@@ -733,6 +754,8 @@
     font-weight: 500;
     white-space: nowrap;
     width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .process-table .col-vram {
@@ -748,7 +771,6 @@
     color: var(--text-secondary);
     font-family: var(--font-mono);
     font-size: 12px;
-    max-width: 400px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -756,9 +778,13 @@
 
   .process-table .col-cmd:hover {
     color: var(--text-primary);
-    overflow: visible;
-    white-space: normal;
-    word-break: break-all;
+  }
+
+  .process-table td[title],
+  .detail-process-user[title],
+  .detail-process-command[title],
+  .gpu-name[title] {
+    cursor: help;
   }
 
   .empty-state {
@@ -903,17 +929,17 @@
   }
 
   .gpu-card {
-    padding: 16px;
+    padding: 14px 14px 12px;
   }
 
   .gpu-card-header {
     align-items: flex-start;
     flex-direction: column;
-    gap: 10px;
+    gap: 8px;
   }
 
   .gpu-bar-row {
-    grid-template-columns: 64px 1fr 52px;
+    grid-template-columns: 44px 1fr minmax(84px, 110px);
   }
 
   .gpu-bar-value {
