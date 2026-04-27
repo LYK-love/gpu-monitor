@@ -8,13 +8,27 @@ GPU Monitor is a small NVIDIA GPU dashboard. It ships as a Rust binary with a Re
 - Node.js 20 or newer
 - NVIDIA drivers with `nvidia-smi`
 
-## Install
+## Install And Update
 
 ```bash
 ./install.sh
 ```
 
-That builds the web dashboard and the release binary.
+That command installs the local project build. It does two things:
+
+1. Builds the React dashboard in `app/dist`.
+2. Builds the Rust release binary in `target/release/gpu-monitor`.
+
+The root `./gpu-monitor` launcher then runs that release binary.
+
+To update an existing checkout after pulling new code, run the same installer again:
+
+```bash
+git pull
+./install.sh
+```
+
+Run `./install.sh` whenever Rust code, frontend code, or frontend dependencies change. The `web` command can rebuild the frontend when `app/dist` is missing or stale, but `./install.sh` is the clean full rebuild path.
 
 ## Use
 
@@ -42,6 +56,15 @@ Useful options:
 ./gpu-monitor tui
 ./gpu-monitor server --host 0.0.0.0 --port 8765
 ```
+
+TUI controls:
+
+- `j` / Down: select next GPU
+- `k` / Up: select previous GPU
+- Tab / Left / Right: switch between Overview and Processes
+- `1`: Overview
+- `2`: Processes
+- `q`, Esc, or Ctrl+C: quit
 
 The dashboard uses `Fira Code` by default. If it is not installed locally, the browser loads it through a lightweight font CSS URL. You can choose another font with either:
 
@@ -101,6 +124,15 @@ cargo check
 cd app
 npm run lint
 npm run build
+```
+
+For frontend-only development, start the metric stream and Vite separately:
+
+```bash
+./gpu-monitor server --port 8765
+
+cd app
+npm run dev
 ```
 
 ## Documentation

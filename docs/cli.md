@@ -1,10 +1,12 @@
 # CLI
 
-Build once:
+Build or update the local checkout:
 
 ```bash
 ./install.sh
 ```
+
+The project contains a Rust backend/CLI and a React dashboard. `./install.sh` builds `app/dist` first, then builds the Rust release binary. Run it again after `git pull` or after changing either side of the project.
 
 Run commands through the root launcher:
 
@@ -54,13 +56,31 @@ If the font is not installed locally, the browser can load it from `--font-css`.
 
 ## `tui`
 
-Shows a compact terminal view:
+Shows an interactive terminal dashboard:
 
 ```bash
 ./gpu-monitor tui
 ```
 
-Stop it with Ctrl+C.
+Views:
+
+- `Overview`: compact GPU list, selected GPU details, utilization history, and that GPU's top processes
+- `Processes`: full process table across all GPUs
+
+Controls:
+
+- `j` / Down: select next GPU
+- `k` / Up: select previous GPU
+- Tab / Left / Right: switch views
+- `1`: Overview
+- `2`: Processes
+- `q`, Esc, or Ctrl+C: quit
+
+Use `--interval` to change the refresh rate:
+
+```bash
+./gpu-monitor tui --interval 0.5
+```
 
 ## `server`
 

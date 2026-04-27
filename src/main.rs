@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
     fs,
-    io::ErrorKind,
+    io::{self, ErrorKind},
     path::{Path, PathBuf},
     process::{Command as StdCommand, Stdio},
     sync::{Mutex, OnceLock},
-    time::{Duration, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -21,7 +21,16 @@ use axum::{
     Router,
 };
 use clap::{Parser, Subcommand};
+use crossterm::{
+    event::{self, Event, KeyCode, KeyEventKind, KeyModifiers},
+    execute,
+    terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
+};
 use futures_util::{sink::SinkExt, StreamExt};
+use ratatui::{
+    prelude::*,
+    widgets::{Block, Borders, Cell, Gauge, Paragraph, Row, Table, Wrap},
+};
 use serde::Serialize;
 use tokio::{net::TcpListener, process::Command as TokioCommand, signal, sync::broadcast, time};
 use tower_http::services::ServeDir;
@@ -281,31 +290,926 @@ async fn run_web(
 }
 
 async fn run_tui(interval: f64) -> Result<()> {
+    enable_raw_mode().context("failed to enable terminal raw mode")?;
+    let mut stdout = io::stdout();
+    execute!(stdout, EnterAlternateScreen).context("failed to enter alternate screen")?;
+    let _cleanup = TerminalCleanup;
+
+    let backend = CrosstermBackend::new(stdout);
+    let mut terminal = Terminal::new(backend).context("failed to initialize terminal")?;
+    terminal.clear().context("failed to clear terminal")?;
+    let mut app = TuiApp::default();
+
     loop {
         let snapshot = collect_snapshot().await;
-        print!("\x1b[2J\x1b[H");
-        match snapshot.error.as_deref() {
-            Some(error) => println!("GPU Monitor ({}) - {error}", snapshot.source),
-            None => println!("GPU Monitor ({})", snapshot.source),
+        app.update(&snapshot);
+        terminal
+            .draw(|frame| draw_tui(frame, &snapshot, &app, interval))
+            .context("failed to draw terminal UI")?;
+
+        let deadline = Instant::now() + interval_duration(interval);
+        while Instant::now() < deadline {
+            let wait = deadline.saturating_duration_since(Instant::now());
+            if wait.is_zero() {
+                break;
+            }
+            if event::poll(wait.min(Duration::from_millis(100)))
+                .context("failed to poll terminal events")?
+            {
+                if handle_tui_event(
+                    event::read().context("failed to read terminal event")?,
+                    &mut app,
+                    &snapshot,
+                ) {
+                    return Ok(());
+                }
+                terminal
+                    .draw(|frame| draw_tui(frame, &snapshot, &app, interval))
+                    .context("failed to draw terminal UI")?;
+                continue;
+            }
         }
-        println!(
-            "{:<4} {:<32} {:>6} {:>9} {:>12} {:>9}",
-            "ID", "Name", "Temp", "Power", "Memory", "Util"
+    }
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum TuiTab {
+    #[default]
+    Overview,
+    Processes,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReturnTarget {
+    Processes,
+    GpuDetail {
+        gpu_index: usize,
+        selected_process: usize,
+    },
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TuiPage {
+    Overview,
+    Processes,
+    GpuDetail {
+        gpu_index: usize,
+        selected_process: usize,
+    },
+    ProcessDetail {
+        gpu_id: u32,
+        pid: u32,
+        return_to: ReturnTarget,
+    },
+}
+
+#[derive(Default)]
+struct TuiApp {
+    selected_gpu: usize,
+    selected_process: usize,
+    tab: TuiTab,
+    page: TuiPage,
+}
+
+impl Default for TuiPage {
+    fn default() -> Self {
+        Self::Overview
+    }
+}
+
+impl TuiApp {
+    fn update(&mut self, snapshot: &Snapshot) {
+        if !snapshot.gpus.is_empty() {
+            self.selected_gpu = self.selected_gpu.min(snapshot.gpus.len() - 1);
+        } else {
+            self.selected_gpu = 0;
+        }
+
+        self.page = match self.page {
+            TuiPage::Overview => TuiPage::Overview,
+            TuiPage::Processes => {
+                let count = flatten_processes(snapshot).len();
+                if count == 0 {
+                    self.selected_process = 0;
+                } else {
+                    self.selected_process = self.selected_process.min(count - 1);
+                }
+                TuiPage::Processes
+            }
+            TuiPage::GpuDetail {
+                gpu_index,
+                selected_process,
+            } => {
+                if let Some(gpu) = snapshot.gpus.get(gpu_index) {
+                    let process_count = gpu.processes.len();
+                    TuiPage::GpuDetail {
+                        gpu_index,
+                        selected_process: selected_process.min(process_count.saturating_sub(1)),
+                    }
+                } else {
+                    TuiPage::Overview
+                }
+            }
+            TuiPage::ProcessDetail {
+                gpu_id,
+                pid,
+                return_to,
+            } => {
+                if find_process(snapshot, gpu_id, pid).is_some() {
+                    TuiPage::ProcessDetail {
+                        gpu_id,
+                        pid,
+                        return_to,
+                    }
+                } else {
+                    match return_to {
+                        ReturnTarget::Processes => TuiPage::Processes,
+                        ReturnTarget::GpuDetail {
+                            gpu_index,
+                            selected_process,
+                        } => TuiPage::GpuDetail {
+                            gpu_index,
+                            selected_process,
+                        },
+                    }
+                }
+            }
+        };
+    }
+
+    fn select_next_gpu(&mut self, gpu_count: usize) {
+        if gpu_count > 0 {
+            self.selected_gpu = (self.selected_gpu + 1).min(gpu_count - 1);
+        }
+    }
+
+    fn select_previous_gpu(&mut self) {
+        self.selected_gpu = self.selected_gpu.saturating_sub(1);
+    }
+
+    fn toggle_tab(&mut self) {
+        if matches!(self.page, TuiPage::Overview | TuiPage::Processes) {
+            self.page = match self.page {
+                TuiPage::Overview => TuiPage::Processes,
+                TuiPage::Processes => TuiPage::Overview,
+                _ => self.page,
+            };
+            self.tab = match self.page {
+                TuiPage::Overview => TuiTab::Overview,
+                TuiPage::Processes => TuiTab::Processes,
+                _ => self.tab,
+            };
+        }
+    }
+
+    fn open_selected_gpu(&mut self) {
+        self.page = TuiPage::GpuDetail {
+            gpu_index: self.selected_gpu,
+            selected_process: 0,
+        };
+    }
+
+    fn open_selected_process(&mut self, snapshot: &Snapshot) {
+        match self.page {
+            TuiPage::Processes => {
+                if let Some((gpu_id, pid)) = selected_process_ref(snapshot, self.selected_process) {
+                    self.page = TuiPage::ProcessDetail {
+                        gpu_id,
+                        pid,
+                        return_to: ReturnTarget::Processes,
+                    };
+                }
+            }
+            TuiPage::GpuDetail {
+                gpu_index,
+                selected_process,
+            } => {
+                if let Some(gpu) = snapshot.gpus.get(gpu_index) {
+                    if let Some(process) = gpu.processes.get(selected_process) {
+                        self.page = TuiPage::ProcessDetail {
+                            gpu_id: process.gpu_id,
+                            pid: process.pid,
+                            return_to: ReturnTarget::GpuDetail {
+                                gpu_index,
+                                selected_process,
+                            },
+                        };
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn back(&mut self) {
+        self.page = match self.page {
+            TuiPage::GpuDetail { .. } => TuiPage::Overview,
+            TuiPage::ProcessDetail { return_to, .. } => match return_to {
+                ReturnTarget::Processes => TuiPage::Processes,
+                ReturnTarget::GpuDetail {
+                    gpu_index,
+                    selected_process,
+                } => TuiPage::GpuDetail {
+                    gpu_index,
+                    selected_process,
+                },
+            },
+            page => page,
+        };
+        self.tab = match self.page {
+            TuiPage::Overview | TuiPage::GpuDetail { .. } => TuiTab::Overview,
+            TuiPage::Processes | TuiPage::ProcessDetail { .. } => TuiTab::Processes,
+        };
+    }
+}
+
+struct TerminalCleanup;
+
+impl Drop for TerminalCleanup {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
+        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+    }
+}
+
+fn handle_tui_event(event: Event, app: &mut TuiApp, snapshot: &Snapshot) -> bool {
+    match event {
+        Event::Key(key) if key.kind == KeyEventKind::Press => {
+            if matches!(key.code, KeyCode::Char('q') | KeyCode::Esc)
+                || (matches!(key.code, KeyCode::Char('c'))
+                    && key.modifiers.contains(KeyModifiers::CONTROL))
+            {
+                if matches!(
+                    app.page,
+                    TuiPage::GpuDetail { .. } | TuiPage::ProcessDetail { .. }
+                ) && key.code == KeyCode::Esc
+                {
+                    app.back();
+                    return false;
+                }
+                return true;
+            }
+
+            match app.page {
+                TuiPage::Overview => match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => app.select_next_gpu(snapshot.gpus.len()),
+                    KeyCode::Up | KeyCode::Char('k') => app.select_previous_gpu(),
+                    KeyCode::Enter => app.open_selected_gpu(),
+                    KeyCode::Tab | KeyCode::Right => app.toggle_tab(),
+                    KeyCode::Char('1') => {
+                        app.page = TuiPage::Overview;
+                        app.tab = TuiTab::Overview;
+                    }
+                    KeyCode::Char('2') => {
+                        app.page = TuiPage::Processes;
+                        app.tab = TuiTab::Processes;
+                    }
+                    _ => {}
+                },
+                TuiPage::Processes => match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        let count = flatten_processes(snapshot).len();
+                        if count > 0 {
+                            app.selected_process = (app.selected_process + 1).min(count - 1);
+                        }
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.selected_process = app.selected_process.saturating_sub(1);
+                    }
+                    KeyCode::Enter => app.open_selected_process(snapshot),
+                    KeyCode::Tab | KeyCode::Right => app.toggle_tab(),
+                    KeyCode::Char('1') => {
+                        app.page = TuiPage::Overview;
+                        app.tab = TuiTab::Overview;
+                    }
+                    KeyCode::Char('2') => {
+                        app.page = TuiPage::Processes;
+                        app.tab = TuiTab::Processes;
+                    }
+                    _ => {}
+                },
+                TuiPage::GpuDetail {
+                    gpu_index,
+                    selected_process,
+                } => match key.code {
+                    KeyCode::Down | KeyCode::Char('j') => {
+                        if let Some(gpu) = snapshot.gpus.get(gpu_index) {
+                            if !gpu.processes.is_empty() {
+                                let next = (selected_process + 1).min(gpu.processes.len() - 1);
+                                app.page = TuiPage::GpuDetail {
+                                    gpu_index,
+                                    selected_process: next,
+                                };
+                            }
+                        }
+                    }
+                    KeyCode::Up | KeyCode::Char('k') => {
+                        app.page = TuiPage::GpuDetail {
+                            gpu_index,
+                            selected_process: selected_process.saturating_sub(1),
+                        };
+                    }
+                    KeyCode::Enter => app.open_selected_process(snapshot),
+                    _ => {}
+                },
+                TuiPage::ProcessDetail { .. } => match key.code {
+                    KeyCode::Enter => {}
+                    _ => {}
+                },
+            }
+            false
+        }
+        _ => false,
+    }
+}
+
+fn draw_tui(frame: &mut Frame<'_>, snapshot: &Snapshot, app: &TuiApp, interval: f64) {
+    let area = frame.area();
+    let layout = Layout::vertical([
+        Constraint::Length(4),
+        Constraint::Min(10),
+        Constraint::Length(1),
+    ])
+    .split(area);
+
+    draw_tui_header(frame, snapshot, app, interval, layout[0]);
+    match app.page {
+        TuiPage::Overview => draw_tui_overview(frame, snapshot, app, layout[1]),
+        TuiPage::Processes => draw_tui_processes(frame, snapshot, app, layout[1]),
+        TuiPage::GpuDetail {
+            gpu_index,
+            selected_process,
+        } => draw_gpu_detail(frame, snapshot, gpu_index, selected_process, layout[1]),
+        TuiPage::ProcessDetail { gpu_id, pid, .. } => {
+            draw_process_detail(frame, snapshot, gpu_id, pid, layout[1])
+        }
+    }
+    draw_tui_footer(frame, app, layout[2]);
+}
+
+fn draw_tui_header(
+    frame: &mut Frame<'_>,
+    snapshot: &Snapshot,
+    app: &TuiApp,
+    interval: f64,
+    area: Rect,
+) {
+    let total_gpu_memory_used: u64 = snapshot.gpus.iter().map(|gpu| gpu.memory_used).sum();
+    let total_gpu_memory: u64 = snapshot.gpus.iter().map(|gpu| gpu.memory_total).sum();
+    let total_power_draw: f64 = snapshot.gpus.iter().map(|gpu| gpu.power_draw).sum();
+    let total_power_limit: f64 = snapshot.gpus.iter().map(|gpu| gpu.power_limit).sum();
+    let avg_gpu_util = average_u32(snapshot.gpus.iter().map(|gpu| gpu.utilization));
+    let process_count: usize = snapshot.gpus.iter().map(|gpu| gpu.processes.len()).sum();
+
+    let title = Line::from(vec![
+        Span::styled(
+            " GPUMON ",
+            Style::default().fg(Color::Black).bg(Color::Cyan).bold(),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            format!("{} ", format_timestamp(snapshot.timestamp)),
+            Style::default().fg(Color::Gray),
+        ),
+        Span::raw(format!("refresh {:.1}s  ", interval)),
+        Span::styled(
+            format!("source {}", snapshot.source),
+            Style::default().fg(if snapshot.error.is_some() {
+                Color::Red
+            } else {
+                Color::Green
+            }),
+        ),
+        Span::raw("  "),
+        Span::styled(
+            page_label(&app.page),
+            Style::default().fg(Color::Cyan).bold(),
+        ),
+    ]);
+
+    let summary = Line::from(vec![
+        Span::raw(format!("GPUs {} | ", snapshot.gpus.len())),
+        Span::raw(format!("Procs {} | ", process_count)),
+        Span::styled(
+            format!("GPU {}% | ", avg_gpu_util),
+            metric_style(avg_gpu_util),
+        ),
+        Span::raw(format!(
+            "VRAM {}/{} | ",
+            format_mib(total_gpu_memory_used),
+            format_mib(total_gpu_memory)
+        )),
+        Span::raw(format!(
+            "Pwr {:.0}/{:.0}W | ",
+            clean_f64(total_power_draw),
+            clean_f64(total_power_limit)
+        )),
+        Span::raw(format!("CPU {:.1}%", snapshot.system.cpu_utilization)),
+    ]);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(Color::DarkGray));
+    let paragraph = Paragraph::new(vec![title, summary])
+        .block(block)
+        .wrap(Wrap { trim: true });
+    frame.render_widget(paragraph, area);
+}
+
+fn draw_tui_overview(frame: &mut Frame<'_>, snapshot: &Snapshot, app: &TuiApp, area: Rect) {
+    let columns =
+        Layout::horizontal([Constraint::Percentage(38), Constraint::Percentage(62)]).split(area);
+    draw_gpu_list(frame, snapshot, app, columns[0]);
+    draw_selected_gpu(frame, snapshot, app, columns[1]);
+}
+
+fn draw_gpu_list(frame: &mut Frame<'_>, snapshot: &Snapshot, app: &TuiApp, area: Rect) {
+    if snapshot.gpus.is_empty() {
+        frame.render_widget(
+            Paragraph::new(
+                snapshot
+                    .error
+                    .as_deref()
+                    .unwrap_or("No GPU data available. Check nvidia-smi and driver access."),
+            )
+            .block(
+                Block::default()
+                    .title(" GPUs ")
+                    .title_style(Style::default().fg(Color::Cyan).bold())
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            )
+            .style(Style::default().fg(Color::Yellow))
+            .wrap(Wrap { trim: true }),
+            area,
         );
-        for gpu in snapshot.gpus {
-            println!(
-                "{:<4} {:<32} {:>5}C {:>6.1}/{:<4.0}W {:>5}/{:<5}MB {:>8}%",
+        return;
+    }
+
+    let rows = snapshot.gpus.iter().enumerate().map(|(index, gpu)| {
+        let memory_pct = percent_u64(gpu.memory_used, gpu.memory_total);
+        let style = if index == app.selected_gpu {
+            Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+        } else {
+            Style::default().fg(Color::White)
+        };
+        Row::new(vec![
+            Cell::from(format!("{}", gpu.id)),
+            Cell::from(truncate(&gpu.name, 24)),
+            Cell::from(format!("{}%", gpu.utilization)),
+            Cell::from(format!("{}%", memory_pct)),
+            Cell::from(format!("{}C", gpu.temperature)),
+        ])
+        .style(style)
+    });
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(4),
+            Constraint::Min(12),
+            Constraint::Length(7),
+            Constraint::Length(7),
+            Constraint::Length(6),
+        ],
+    )
+    .header(
+        Row::new(["ID", "Name", "Util", "VRAM", "Temp"])
+            .style(Style::default().fg(Color::DarkGray)),
+    )
+    .block(
+        Block::default()
+            .title(" GPUs ")
+            .title_style(Style::default().fg(Color::Cyan).bold())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(table, area);
+}
+
+fn draw_selected_gpu(frame: &mut Frame<'_>, snapshot: &Snapshot, app: &TuiApp, area: Rect) {
+    let Some(gpu) = snapshot.gpus.get(app.selected_gpu) else {
+        frame.render_widget(
+            Paragraph::new("No selected GPU")
+                .block(Block::default().borders(Borders::ALL))
+                .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    };
+
+    let memory_pct = percent_u64(gpu.memory_used, gpu.memory_total);
+    let block = Block::default()
+        .title(format!(
+            " GPU {}  {} ",
+            gpu.id,
+            truncate(&gpu.name, area.width.saturating_sub(16) as usize)
+        ))
+        .title_style(Style::default().fg(Color::White).bold())
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(metric_color(gpu.utilization)));
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let rows = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Length(5),
+        Constraint::Min(8),
+    ])
+    .split(inner);
+
+    let metrics = Layout::horizontal([
+        Constraint::Percentage(34),
+        Constraint::Percentage(33),
+        Constraint::Percentage(33),
+    ])
+    .split(rows[0]);
+    frame.render_widget(tui_gauge("util", gpu.utilization, 100), metrics[0]);
+    frame.render_widget(tui_gauge("vram", memory_pct, 100), metrics[1]);
+    frame.render_widget(tui_gauge("temp", gpu.temperature.min(100), 100), metrics[2]);
+
+    let facts = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("Power ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!(
+                "{:.1}/{:.0} W",
+                clean_f64(gpu.power_draw),
+                clean_f64(gpu.power_limit)
+            )),
+            Span::raw("   "),
+            Span::styled("Fan ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!("{}%", gpu.fan_speed)),
+            Span::raw("   "),
+            Span::styled("VRAM ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!(
+                "{}/{}",
+                format_mib(gpu.memory_used),
+                format_mib(gpu.memory_total)
+            )),
+        ]),
+        Line::from(vec![
+            Span::styled("UUID ", Style::default().fg(Color::DarkGray)),
+            Span::raw(truncate(&gpu.uuid, area.width.saturating_sub(12) as usize)),
+        ]),
+    ])
+    .wrap(Wrap { trim: true });
+    frame.render_widget(
+        facts,
+        Rect {
+            height: 2,
+            ..rows[1]
+        },
+    );
+
+    draw_selected_gpu_processes(frame, gpu, None, rows[2]);
+}
+
+fn draw_selected_gpu_processes(
+    frame: &mut Frame<'_>,
+    gpu: &GpuData,
+    selected_process: Option<usize>,
+    area: Rect,
+) {
+    let mut processes: Vec<&GpuProcess> = gpu.processes.iter().collect();
+    processes.sort_by(|left, right| right.memory_usage.cmp(&left.memory_usage));
+    let rows = if processes.is_empty() {
+        vec![Row::new(["-", "-", "-", "-", "No GPU processes"])]
+    } else {
+        processes
+            .into_iter()
+            .take(8)
+            .enumerate()
+            .map(|(index, process)| {
+                let is_selected = selected_process == Some(index);
+                Row::new([
+                    truncate(&process.user, 12),
+                    truncate(&process.uid, 8),
+                    process.pid.to_string(),
+                    format_mib(process.memory_usage),
+                    truncate(&process.cmd_line, area.width.saturating_sub(42) as usize),
+                ])
+                .style(if is_selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+                } else {
+                    Style::default()
+                })
+            })
+            .collect()
+    };
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(14),
+            Constraint::Length(10),
+            Constraint::Length(8),
+            Constraint::Length(9),
+            Constraint::Min(12),
+        ],
+    )
+    .header(
+        Row::new(["User", "UID", "PID", "VRAM", "Command"])
+            .style(Style::default().fg(Color::DarkGray)),
+    )
+    .block(
+        Block::default()
+            .title(" GPU Processes ")
+            .title_style(Style::default().fg(Color::Cyan).bold())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    );
+    frame.render_widget(table, area);
+}
+
+fn draw_gpu_detail(
+    frame: &mut Frame<'_>,
+    snapshot: &Snapshot,
+    gpu_index: usize,
+    selected_process: usize,
+    area: Rect,
+) {
+    let Some(gpu) = snapshot.gpus.get(gpu_index) else {
+        frame.render_widget(
+            Paragraph::new("No GPU selected")
+                .block(Block::default().borders(Borders::ALL))
+                .style(Style::default().fg(Color::DarkGray)),
+            area,
+        );
+        return;
+    };
+
+    let layout = Layout::vertical([Constraint::Length(7), Constraint::Min(8)]).split(area);
+    let header = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("GPU ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!("{}", gpu.id)),
+            Span::raw("  "),
+            Span::raw(truncate(&gpu.name, area.width.saturating_sub(12) as usize)),
+        ]),
+        Line::from(vec![
+            Span::styled("UUID ", Style::default().fg(Color::DarkGray)),
+            Span::raw(truncate(&gpu.uuid, area.width.saturating_sub(12) as usize)),
+        ]),
+        Line::from(vec![
+            Span::styled("Power ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!(
+                "{:.1}/{:.0} W",
+                clean_f64(gpu.power_draw),
+                clean_f64(gpu.power_limit)
+            )),
+            Span::raw("  "),
+            Span::styled("Temp ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!("{}C", gpu.temperature)),
+            Span::raw("  "),
+            Span::styled("Fan ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!("{}%", gpu.fan_speed)),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(" GPU Detail ")
+            .title_style(Style::default().fg(Color::Cyan).bold())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(metric_color(gpu.utilization))),
+    )
+    .wrap(Wrap { trim: true });
+    frame.render_widget(header, layout[0]);
+
+    draw_selected_gpu_processes(frame, gpu, Some(selected_process), layout[1]);
+}
+
+fn draw_tui_processes(frame: &mut Frame<'_>, snapshot: &Snapshot, app: &TuiApp, area: Rect) {
+    let processes = sorted_processes(snapshot);
+
+    let rows: Vec<Row<'_>> = if processes.is_empty() {
+        vec![Row::new(vec![
+            Cell::from("-"),
+            Cell::from("-"),
+            Cell::from("-"),
+            Cell::from("-"),
+            Cell::from("-"),
+            Cell::from("-"),
+            Cell::from(
+                snapshot
+                    .error
+                    .as_deref()
+                    .unwrap_or("No active compute processes reported by nvidia-smi"),
+            ),
+        ])]
+    } else {
+        processes
+            .into_iter()
+            .take(64)
+            .enumerate()
+            .map(|(index, (gpu_index, process))| {
+                let is_selected = app.selected_process == index;
+                Row::new(vec![
+                    Cell::from(format!("{}", snapshot.gpus[gpu_index].id)),
+                    Cell::from(truncate(&process.user, 14)),
+                    Cell::from(truncate(&process.uid, 8)),
+                    Cell::from(process.pid.to_string()),
+                    Cell::from(process.kind.clone()),
+                    Cell::from(format_mib(process.memory_usage)),
+                    Cell::from(truncate(&process.cmd_line, 120)),
+                ])
+                .style(if is_selected {
+                    Style::default().fg(Color::Black).bg(Color::Cyan).bold()
+                } else {
+                    Style::default()
+                })
+            })
+            .collect()
+    };
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(5),
+            Constraint::Length(16),
+            Constraint::Length(10),
+            Constraint::Length(9),
+            Constraint::Length(6),
+            Constraint::Length(9),
+            Constraint::Min(24),
+        ],
+    )
+    .header(
+        Row::new(vec!["GPU", "User", "UID", "PID", "Type", "VRAM", "Command"])
+            .style(Style::default().fg(Color::Cyan).bold()),
+    )
+    .block(
+        Block::default()
+            .title(" Processes ")
+            .title_style(Style::default().fg(Color::Cyan).bold())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray)),
+    )
+    .row_highlight_style(Style::default().bg(Color::DarkGray));
+
+    frame.render_widget(table, area);
+}
+
+fn draw_process_detail(
+    frame: &mut Frame<'_>,
+    snapshot: &Snapshot,
+    gpu_id: u32,
+    pid: u32,
+    area: Rect,
+) {
+    let Some((gpu_index, process)) = find_process(snapshot, gpu_id, pid) else {
+        frame.render_widget(
+            Paragraph::new("Process not found")
+                .block(Block::default().borders(Borders::ALL))
+                .style(Style::default().fg(Color::Red)),
+            area,
+        );
+        return;
+    };
+
+    let gpu = &snapshot.gpus[gpu_index];
+    let layout = Layout::vertical([Constraint::Length(8), Constraint::Min(4)]).split(area);
+    let details = Paragraph::new(vec![
+        Line::from(vec![
+            Span::styled("GPU ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!(
+                "{}  {}",
                 gpu.id,
-                truncate(&gpu.name, 32),
-                gpu.temperature,
-                gpu.power_draw,
-                gpu.power_limit,
-                gpu.memory_used,
-                gpu.memory_total,
-                gpu.utilization
-            );
+                truncate(&gpu.name, area.width.saturating_sub(12) as usize)
+            )),
+        ]),
+        Line::from(vec![
+            Span::styled("PID ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format!("{}", process.pid)),
+            Span::raw("  "),
+            Span::styled("UID ", Style::default().fg(Color::DarkGray)),
+            Span::raw(process.uid.clone()),
+            Span::raw("  "),
+            Span::styled("User ", Style::default().fg(Color::DarkGray)),
+            Span::raw(process.user.clone()),
+        ]),
+        Line::from(vec![
+            Span::styled("Type ", Style::default().fg(Color::DarkGray)),
+            Span::raw(process.kind.clone()),
+            Span::raw("  "),
+            Span::styled("VRAM ", Style::default().fg(Color::DarkGray)),
+            Span::raw(format_mib(process.memory_usage)),
+        ]),
+        Line::from(vec![
+            Span::styled("Command ", Style::default().fg(Color::DarkGray)),
+            Span::raw(truncate(
+                &process.cmd_line,
+                area.width.saturating_sub(12) as usize,
+            )),
+        ]),
+    ])
+    .block(
+        Block::default()
+            .title(" Process Detail ")
+            .title_style(Style::default().fg(Color::Cyan).bold())
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(metric_color(gpu.utilization))),
+    )
+    .wrap(Wrap { trim: true });
+    frame.render_widget(details, layout[0]);
+
+    let hint = Paragraph::new("Esc back | Enter open from lists | j/k move selection")
+        .style(Style::default().fg(Color::DarkGray))
+        .wrap(Wrap { trim: true });
+    frame.render_widget(hint, layout[1]);
+}
+
+fn draw_tui_footer(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
+    let text = match app.page {
+        TuiPage::Overview => "1 overview | tab switch | j/k select GPU | Enter open GPU | q quit",
+        TuiPage::Processes => {
+            "2 processes | tab switch | j/k select process | Enter open process | q quit"
         }
-        time::sleep(interval_duration(interval)).await;
+        TuiPage::GpuDetail { .. } => "Esc back | j/k select process | Enter open process | q quit",
+        TuiPage::ProcessDetail { .. } => "Esc back | q quit",
+    };
+    frame.render_widget(
+        Paragraph::new(format!(" {text} ")).style(Style::default().fg(Color::DarkGray)),
+        area,
+    );
+}
+
+fn flatten_processes(snapshot: &Snapshot) -> Vec<(usize, &GpuProcess)> {
+    snapshot
+        .gpus
+        .iter()
+        .enumerate()
+        .flat_map(|(gpu_index, gpu)| {
+            gpu.processes
+                .iter()
+                .map(move |process| (gpu_index, process))
+        })
+        .collect()
+}
+
+fn sorted_processes(snapshot: &Snapshot) -> Vec<(usize, &GpuProcess)> {
+    let mut processes = flatten_processes(snapshot);
+    processes.sort_by(|left, right| right.1.memory_usage.cmp(&left.1.memory_usage));
+    processes
+}
+
+fn selected_process_ref(snapshot: &Snapshot, index: usize) -> Option<(u32, u32)> {
+    sorted_processes(snapshot)
+        .into_iter()
+        .nth(index)
+        .map(|(gpu_index, process)| (snapshot.gpus[gpu_index].id, process.pid))
+}
+
+fn find_process<'a>(
+    snapshot: &'a Snapshot,
+    gpu_id: u32,
+    pid: u32,
+) -> Option<(usize, &'a GpuProcess)> {
+    snapshot
+        .gpus
+        .iter()
+        .enumerate()
+        .find_map(|(gpu_index, gpu)| {
+            if gpu.id != gpu_id {
+                return None;
+            }
+            gpu.processes
+                .iter()
+                .find(|process| process.pid == pid)
+                .map(|process| (gpu_index, process))
+        })
+}
+
+fn page_label(page: &TuiPage) -> &'static str {
+    match page {
+        TuiPage::Overview => "Overview",
+        TuiPage::Processes => "Processes",
+        TuiPage::GpuDetail { .. } => "GPU Detail",
+        TuiPage::ProcessDetail { .. } => "Process Detail",
+    }
+}
+
+fn tui_gauge(label: &'static str, value: u32, max: u32) -> Gauge<'static> {
+    let ratio = if max == 0 {
+        0.0
+    } else {
+        (value as f64 / max as f64).clamp(0.0, 1.0)
+    };
+    Gauge::default()
+        .gauge_style(Style::default().fg(metric_color(value)))
+        .label(format!("{label} {value}%"))
+        .ratio(ratio)
+}
+
+fn metric_style(value: u32) -> Style {
+    Style::default().fg(metric_color(value)).bold()
+}
+
+fn metric_color(value: u32) -> Color {
+    if value >= 85 {
+        Color::Red
+    } else if value >= 65 {
+        Color::Yellow
+    } else {
+        Color::Green
     }
 }
 
@@ -405,9 +1309,11 @@ async fn collect_nvidia_smi() -> Result<Vec<GpuData>> {
         .context("nvidia-smi not found or failed to start")?;
 
     if !output.status.success() {
-        return Err(anyhow!(String::from_utf8_lossy(&output.stderr)
-            .trim()
-            .to_string()));
+        let error = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if error.is_empty() {
+            return Err(anyhow!("nvidia-smi exited with status {}", output.status));
+        }
+        return Err(anyhow!(error));
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -724,6 +1630,51 @@ fn truncate(value: &str, max_chars: usize) -> String {
         .take(max_chars.saturating_sub(1))
         .collect::<String>()
         + "."
+}
+
+fn average_u32(values: impl Iterator<Item = u32>) -> u32 {
+    let mut total = 0u64;
+    let mut count = 0u64;
+    for value in values {
+        total += value as u64;
+        count += 1;
+    }
+    if count == 0 {
+        0
+    } else {
+        (total / count) as u32
+    }
+}
+
+fn percent_u64(used: u64, total: u64) -> u32 {
+    if total == 0 {
+        return 0;
+    }
+    ((used as f64 / total as f64 * 100.0).round() as u32).min(100)
+}
+
+fn clean_f64(value: f64) -> f64 {
+    if value.abs() < 0.05 {
+        0.0
+    } else {
+        value
+    }
+}
+
+fn format_mib(value: u64) -> String {
+    if value >= 1024 {
+        format!("{:.1}G", value as f64 / 1024.0)
+    } else {
+        format!("{value}M")
+    }
+}
+
+fn format_timestamp(timestamp: u128) -> String {
+    let seconds = ((timestamp / 1000) % 86_400) as u64;
+    let hour = seconds / 3600;
+    let minute = (seconds % 3600) / 60;
+    let second = seconds % 60;
+    format!("{hour:02}:{minute:02}:{second:02} UTC")
 }
 
 fn project_root() -> Result<PathBuf> {

@@ -9,5 +9,8 @@ echo "[install] Building dashboard"
 echo "[install] Building gpu-monitor"
 (cd "$ROOT" && cargo build --release)
 
+echo "[install] Installing backend binary"
+(cd "$ROOT" && cargo install --path .)
+
 echo "[install] Done"
 echo "[install] Run: ./gpu-monitor web"
