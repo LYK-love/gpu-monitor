@@ -8,7 +8,7 @@ GPU Monitor is a small NVIDIA GPU dashboard. It ships as a Rust binary with a Re
 
 ## Demo
 
-`gpu-monitor tui` opens an interactive TUI:
+`gpu-monitor tui` opens an interactive text-based user interfaces (TUI):
 
 ![tui_overview](./assets/tui_overview.png)
 
@@ -34,23 +34,22 @@ That command installs the local project build. It does two things:
 2. Builds the Rust release binary in `target/release/gpu-monitor`.
 3. Install the Rust binary. 
 
-The root `./gpu-monitor` launcher runs the release binary from the repository checkout. The installed `gpu-monitor` command works from `PATH` after `cargo install`, and it reads the dashboard assets from the data directory above.
-
-To update an existing checkout after pulling new code, run the same installer again:
-
-```bash
-git pull
-./install.sh
-```
-
-Run `./install.sh` whenever Rust code, frontend code, or frontend dependencies change. The `web` command can rebuild the frontend when you are running from the repository checkout, but `./install.sh` is the clean full rebuild path for both the binary and the installed dashboard assets.
+Run `./install.sh` whenever Rust code, frontend code, or frontend dependencies change. 
 
 ## Use
 
+### TUI
+
+Start TUI:
+```bash
+gpu-monitor tui
+```
+
+### Web
 Start the dashboard:
 
 ```bash
-./gpu-monitor web
+gpu-monitor web
 ```
 
 Then open the printed URL, usually:
@@ -64,71 +63,9 @@ The command starts both the WebSocket metric stream and the web dashboard. If th
 Useful options:
 
 ```bash
-./gpu-monitor web --web-port 8770
-./gpu-monitor web --port 9000
-./gpu-monitor web --font "Fira Code"
-./gpu-monitor web --font-css "https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&display=swap"
-./gpu-monitor tui
-./gpu-monitor server --host 0.0.0.0 --port 8765
+gpu-monitor web --web-port 8770 # Only change the web service port, leaving the WebSocket port unchanged
+gpu-monitor web --font "Fira Code"
 ```
-
-TUI controls:
-
-- `j` / Down: select next GPU
-- `k` / Up: select previous GPU
-- Tab / Left / Right: switch between Overview and Processes
-- `1`: Overview
-- `2`: Processes
-- `q`, Esc, or Ctrl+C: quit
-
-The dashboard uses `Fira Code` by default. If it is not installed locally, the browser loads it through a lightweight font CSS URL. You can choose another font with either:
-
-```bash
-./gpu-monitor web --font "JetBrains Mono"
-GPUMON_FONT="IBM Plex Mono" ./gpu-monitor web
-```
-
-Use `--font-css` or `GPUMON_FONT_CSS` to point at another CSS file, for example an internal mirror. Use an empty value to disable remote font loading:
-
-```bash
-./gpu-monitor web --font "JetBrains Mono" --font-css "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
-GPUMON_FONT_CSS="" ./gpu-monitor web
-```
-
-## Data
-
-GPU table:
-
-- `util`: GPU utilization percentage reported by `nvidia-smi`
-- `vram`: used / total GPU memory
-- `temp`: current GPU temperature
-- `power`: current power draw / enforced power limit
-- `processes`: number of GPU compute processes currently attached to that GPU
-
-Process table:
-
-- `GPU`: GPU index that owns the process
-- `PID`: operating-system process id
-- `User`: username resolved from UID when available
-- `UID`: numeric user id
-- `Type`: `C` means compute process
-- `VRAM`: GPU memory used by the process
-- `Command`: full process command line when available
-
-Bottom status:
-
-- `avg temp`: average temperature across GPUs
-- `sum power`: sum of current power draw across GPUs
-- `sum vram`: sum of used VRAM across GPUs
-- `sum capacity`: sum of total VRAM capacity across GPUs
-- `system cpu`: current host CPU utilization
-- `system mem`: current host memory utilization
-
-Resource chart:
-
-- `cpu`: current host CPU utilization
-- `mem`: current host memory utilization
-- `gpu N`: utilization percentage for GPU `N`, not VRAM usage
 
 ## Development
 
@@ -144,7 +81,7 @@ npm run build
 For frontend-only development, start the metric stream and Vite separately:
 
 ```bash
-./gpu-monitor server --port 8765
+gpu-monitor server --port 8765
 
 cd app
 npm run dev
