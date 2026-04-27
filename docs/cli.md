@@ -8,6 +8,8 @@ Build or update the local checkout:
 
 The project contains a Rust backend/CLI and a React dashboard. `./install.sh` builds `app/dist` first, then builds the Rust release binary. Run it again after `git pull` or after changing either side of the project.
 
+`install.sh` also copies the built dashboard to `${XDG_DATA_HOME:-$HOME/.local/share}/gpu-monitor/app/dist`, so the installed `gpu-monitor` binary can serve the web UI from `PATH` without depending on the repository layout.
+
 All commands support `-h` / `--help`.
 
 Run commands through the root launcher:
@@ -17,6 +19,13 @@ Run commands through the root launcher:
 ./gpu-monitor web
 ./gpu-monitor tui
 ./gpu-monitor server
+```
+
+After installation, you can also use the installed command directly:
+
+```bash
+gpu-monitor web
+gpu-monitor tui
 ```
 
 ## `web`

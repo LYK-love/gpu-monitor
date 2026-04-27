@@ -8,9 +8,10 @@ Install or rebuild the local checkout:
 ./install.sh
 ```
 
-`install.sh` builds both project halves:
+`install.sh` builds both project halves and installs the dashboard assets for the packaged binary:
 
-- `app/dist`: the React dashboard bundle
+- `app/dist`: the React dashboard bundle in the checkout
+- `${XDG_DATA_HOME:-$HOME/.local/share}/gpu-monitor/app/dist`: the installed dashboard bundle used by `gpu-monitor web`
 - `target/release/gpu-monitor`: the Rust CLI / server / TUI binary
 
 After pulling updates, run the installer again:
@@ -21,6 +22,13 @@ git pull
 ```
 
 Use the same rebuild path after changing Rust files, frontend files, or frontend dependencies.
+
+After installation, the binary on `PATH` can be started with:
+
+```bash
+gpu-monitor web
+gpu-monitor tui
+```
 
 ## Local Monitoring
 

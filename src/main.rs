@@ -225,21 +225,21 @@ async fn run_web(
     font_css: String,
     no_open: bool,
 ) -> Result<()> {
-    let root = project_root()?;
-    let app_dir = root.join("app");
-    let dist_dir = app_dir.join("dist");
+    let assets = locate_web_assets()?;
 
-    if let Some(reason) = web_build_reason(&app_dir, &dist_dir)? {
-        println!("[WEB] Building web app ({reason})...");
-        let status = TokioCommand::new("npm")
-            .arg("run")
-            .arg("build")
-            .current_dir(&app_dir)
-            .status()
-            .await
-            .context("failed to run npm build")?;
-        if !status.success() {
-            return Err(anyhow!("npm run build failed"));
+    if let Some((app_dir, dist_dir)) = assets.source_layout.as_ref() {
+        if let Some(reason) = web_build_reason(app_dir, dist_dir)? {
+            println!("[WEB] Building web app ({reason})...");
+            let status = TokioCommand::new("npm")
+                .arg("run")
+                .arg("build")
+                .current_dir(app_dir)
+                .status()
+                .await
+                .context("failed to run npm build")?;
+            if !status.success() {
+                return Err(anyhow!("npm run build failed"));
+            }
         }
     }
 
@@ -265,7 +265,12 @@ async fn run_web(
 
     let (tx, _) = broadcast::channel(32);
     let ws_app = ws_router(tx.clone());
-    let web_app = web_router(dist_dir, ws_url.clone(), font.clone(), font_css.clone());
+    let web_app = web_router(
+        assets.dist_dir.clone(),
+        ws_url.clone(),
+        font.clone(),
+        font_css.clone(),
+    );
     tokio::spawn(collector_loop(tx, interval));
 
     tokio::spawn(async move {
@@ -1677,16 +1682,74 @@ fn format_timestamp(timestamp: u128) -> String {
     format!("{hour:02}:{minute:02}:{second:02} UTC")
 }
 
-fn project_root() -> Result<PathBuf> {
+struct WebAssets {
+    dist_dir: PathBuf,
+    source_layout: Option<(PathBuf, PathBuf)>,
+}
+
+fn locate_web_assets() -> Result<WebAssets> {
+    if let Some(dist_dir) = configured_dist_dir()? {
+        return Ok(WebAssets {
+            dist_dir,
+            source_layout: None,
+        });
+    }
+
+    if let Some(root) = find_source_root()? {
+        let app_dir = root.join("app");
+        let dist_dir = app_dir.join("dist");
+        return Ok(WebAssets {
+            dist_dir: dist_dir.clone(),
+            source_layout: Some((app_dir, dist_dir)),
+        });
+    }
+
+    let dist_dir = installed_dist_dir()?;
+    Ok(WebAssets {
+        dist_dir,
+        source_layout: None,
+    })
+}
+
+fn find_source_root() -> Result<Option<PathBuf>> {
     let exe = std::env::current_exe().context("failed to locate current executable")?;
     let cwd = std::env::current_dir().context("failed to locate current directory")?;
     for base in exe.ancestors().chain(cwd.ancestors()) {
-        let candidate = base.join("app").join("dist").join("index.html");
+        let candidate = base.join("app").join("package.json");
         if candidate.exists() {
-            return Ok(base.to_path_buf());
+            return Ok(Some(base.to_path_buf()));
         }
     }
-    Ok(cwd)
+    Ok(None)
+}
+
+fn configured_dist_dir() -> Result<Option<PathBuf>> {
+    if let Some(value) = std::env::var_os("GPUMON_DIST_DIR") {
+        let path = PathBuf::from(value);
+        if path.join("index.html").exists() {
+            return Ok(Some(path));
+        }
+        return Err(anyhow!(
+            "GPUMON_DIST_DIR points to {}, but index.html is missing",
+            path.display()
+        ));
+    }
+    Ok(None)
+}
+
+fn installed_dist_dir() -> Result<PathBuf> {
+    Ok(user_data_root()?
+        .join("gpu-monitor")
+        .join("app")
+        .join("dist"))
+}
+
+fn user_data_root() -> Result<PathBuf> {
+    if let Some(dir) = std::env::var_os("XDG_DATA_HOME") {
+        return Ok(PathBuf::from(dir));
+    }
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".local").join("share"))
 }
 
 fn web_build_reason(app_dir: &Path, dist_dir: &Path) -> Result<Option<String>> {

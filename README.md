@@ -30,10 +30,11 @@ GPU Monitor is a small NVIDIA GPU dashboard. It ships as a Rust binary with a Re
 
 That command installs the local project build. It does two things:
 
-1. Builds the React dashboard in `app/dist`.
+1. Builds the React dashboard in `app/dist` and copies it to the local data directory at `${XDG_DATA_HOME:-$HOME/.local/share}/gpu-monitor/app/dist`.
 2. Builds the Rust release binary in `target/release/gpu-monitor`.
+3. Install the Rust binary. 
 
-The root `./gpu-monitor` launcher then runs that release binary.
+The root `./gpu-monitor` launcher runs the release binary from the repository checkout. The installed `gpu-monitor` command works from `PATH` after `cargo install`, and it reads the dashboard assets from the data directory above.
 
 To update an existing checkout after pulling new code, run the same installer again:
 
@@ -42,7 +43,7 @@ git pull
 ./install.sh
 ```
 
-Run `./install.sh` whenever Rust code, frontend code, or frontend dependencies change. The `web` command can rebuild the frontend when `app/dist` is missing or stale, but `./install.sh` is the clean full rebuild path.
+Run `./install.sh` whenever Rust code, frontend code, or frontend dependencies change. The `web` command can rebuild the frontend when you are running from the repository checkout, but `./install.sh` is the clean full rebuild path for both the binary and the installed dashboard assets.
 
 ## Use
 
