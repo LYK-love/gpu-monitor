@@ -1839,3 +1839,91 @@ async fn try_open_browser(url: &str) {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::{
+        fs,
+        path::PathBuf,
+        time::{Duration, SystemTime, UNIX_EPOCH},
+    };
+
+    #[test]
+    fn truncate_keeps_short_values() {
+        assert_eq!(truncate("gpu", 8), "gpu");
+    }
+
+    #[test]
+    fn truncate_shortens_long_values() {
+        assert_eq!(truncate("nvidia-geforce-rtx-4090", 8), "nvidia-.");
+    }
+
+    #[test]
+    fn csv_cols_trims_cells() {
+        assert_eq!(csv_cols("  a , b,c  "), vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn parse_f64_handles_missing_values() {
+        assert_eq!(parse_f64("N/A"), 0.0);
+        assert_eq!(parse_f64("[Not Supported]"), 0.0);
+    }
+
+    #[test]
+    fn interval_duration_has_floor() {
+        assert_eq!(interval_duration(0.01), Duration::from_millis(100));
+    }
+
+    #[test]
+    fn page_label_matches_page() {
+        assert_eq!(page_label(&TuiPage::Overview), "Overview");
+        assert_eq!(page_label(&TuiPage::Processes), "Processes");
+        assert_eq!(
+            page_label(&TuiPage::GpuDetail {
+                gpu_index: 0,
+                selected_process: 0
+            }),
+            "GPU Detail"
+        );
+        assert_eq!(
+            page_label(&TuiPage::ProcessDetail {
+                gpu_id: 0,
+                pid: 1,
+                return_to: ReturnTarget::Processes
+            }),
+            "Process Detail"
+        );
+    }
+
+    #[test]
+    fn latest_modified_path_returns_missing_for_absent_path() {
+        let path = PathBuf::from("/tmp/gpu-monitor-does-not-exist");
+        let result = latest_modified_path(&path).expect("path lookup should not fail");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn latest_modified_path_tracks_files() {
+        let root = std::env::temp_dir().join(format!(
+            "gpu-monitor-test-{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .expect("time went backwards")
+                .as_nanos()
+        ));
+        let nested = root.join("nested");
+        let file = nested.join("file.txt");
+
+        fs::create_dir_all(&nested).expect("create test dir");
+        fs::write(&file, "hello").expect("write test file");
+        std::thread::sleep(Duration::from_millis(20));
+        fs::write(&file, "hello again").expect("update test file");
+
+        let result = latest_modified_path(&root).expect("scan should succeed");
+        let (_, path) = result.expect("expected a modified path");
+        assert_eq!(path, file);
+
+        fs::remove_dir_all(&root).ok();
+    }
+}

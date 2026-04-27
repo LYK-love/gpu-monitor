@@ -8,6 +8,8 @@ Build or update the local checkout:
 
 The project contains a Rust backend/CLI and a React dashboard. `./install.sh` builds `app/dist` first, then builds the Rust release binary. Run it again after `git pull` or after changing either side of the project.
 
+All commands support `-h` / `--help`.
+
 Run commands through the root launcher:
 
 ```bash

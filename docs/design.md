@@ -17,6 +17,8 @@ The Rust binary reads GPU snapshots from `nvidia-smi`, serves a WebSocket metric
 
 The React application stores the latest snapshot and short utilization history in Zustand. When the WebSocket stream is unavailable, a mock data engine keeps the interface usable for development and demos.
 
+The terminal UI uses the same snapshot model, but presents it as a compact navigation flow: an overview page, a per-GPU detail page, a global process page, and a per-process detail page.
+
 ## Data Shape
 
 Each update is a JSON object with a timestamp and a list of GPUs:
@@ -62,13 +64,12 @@ nvidia-smi
     |
     v
 Rust binary
+  |      |\
+  |      | \--> terminal UI
   |      |
   |      v
-  |   terminal view
+  |   WebSocket stream
   v
-WebSocket stream
-    |
-    v
 React dashboard
 ```
 

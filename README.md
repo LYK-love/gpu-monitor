@@ -8,7 +8,7 @@ GPU Monitor is a small NVIDIA GPU dashboard. It ships as a Rust binary with a Re
 
 ## Demo
 
-`gpu-monitor tiu` opens an interactive TUI:
+`gpu-monitor tui` opens an interactive TUI:
 
 ![tui_overview](./assets/tui_overview.png)
 
@@ -158,3 +158,5 @@ npm run dev
 ## License
 
 MIT
+
+This project was written collaboratively by humans and AI.
